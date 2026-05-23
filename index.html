@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>P2P Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      line-height: 1.5;
+    }
+    input, select, button {
+      font-size: 14px;
+      padding: 8px;
+      margin: 4px 0;
+    }
+    #userList {
+      width: 220px;
+      min-height: 120px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    #userList option:checked {
+      background: #007acc;
+      color: #fff;
+    }
+    #connectSelected:disabled {
+      background: #ddd;
+      color: #666;
+      cursor: not-allowed;
+    }
+    button {
+      border: 1px solid #007acc;
+      border-radius: 4px;
+      background: #007acc;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) {
+      background: #005f9e;
+    }
+    hr {
+      margin: 16px 0;
+      border: none;
+      border-top: 1px solid #eee;
+    }
+    #log {
+      max-height: 240px;
+      overflow: auto;
+      background: #111;
+      color: #eee;
+      padding: 12px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<h3>P2P Chat (Stage 1)</h3>
+
+<div>
+  <input id="me" placeholder="my username (alice)" />
+  <button id="loginBtn">Login</button>
+  <span id="status"></span>
+</div>
+
+<div>
+  <input id="peer" placeholder="peer username (bob)" />
+  <button id="connectBtn">Connect</button>
+</div>
+
+<h4>Online Users</h4>
+
+<select id="userList"></select>
+
+<button id="connectSelected">
+  Connect to Selected
+</button>
+
+<hr/>
+
+<div>
+  <input id="msg" placeholder="message" />
+  <button id="sendBtn">Send</button>
+</div>
+
+<pre id="log"></pre>
+
+<script type="module" src="./app.js"></script>
+
+</body>
+</html>
