@@ -4,11 +4,16 @@ let myUsername = null;
 let peerUsername = null;
 
 let peers = {};
+
+// ==================== MESSAGE ROUTING ====================
+let messageRouter = null;
+let relayForwarder = null;
 function createPeer(username, isCaller) {
   const pc = new RTCPeerConnection();
   const peer = {
     pc,
     dc: null,
+    connected: false,
     session: {
       ready: false,
       sendKey: null,
@@ -121,6 +126,8 @@ function setupDataChannel(username, peer, channel) {
 
   channel.onopen = async () => {
     log("DataChannel OPEN (P2P ready) to " + username);
+    peer.connected = true;
+    updateConnectedPeers();
     await startHandshake(username);
   };
 
@@ -129,6 +136,14 @@ function setupDataChannel(username, peer, channel) {
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
+        
+        // ========== MESSAGE ROUTING HANDLER ==========
+        if (msg.type === "routed_message") {
+          await handleRoutedMessage(msg.payload);
+          return;
+        }
+        
+        // Handle handshake messages
         await onHandshakeMessage(msg, username);
       } catch (e) {
         log(username + ": " + data);
@@ -143,7 +158,35 @@ function setupDataChannel(username, peer, channel) {
   channel.onclose = () => {
     log("Disconnected from " + username);
     delete peers[username];
+    updateConnectedPeers();
   };
+}
+
+function updateConnectedPeers() {
+  const list = document.getElementById("connectedPeers");
+  if (!list) return;
+
+  list.innerHTML = "";
+  for (const username in peers) {
+    const peer = peers[username];
+    if (peer && (peer.connected || (peer.dc && peer.dc.readyState === "open"))) {
+      const item = document.createElement("li");
+      item.textContent = username + " (connected)";
+      item.style.marginBottom = "6px";
+      item.style.padding = "4px 8px";
+      item.style.borderRadius = "4px";
+      item.style.background = "#e6f7ff";
+      item.style.color = "#004a75";
+      list.appendChild(item);
+    }
+  }
+
+  if (!list.hasChildNodes()) {
+    const item = document.createElement("li");
+    item.textContent = "No connected peers.";
+    item.style.color = "#666";
+    list.appendChild(item);
+  }
 }
 
 async function startAsCaller() {
@@ -351,6 +394,36 @@ async function onHandshakeMessage(m, username) {
   }
 }
 
+// ==================== MESSAGE ROUTING HANDLER ====================
+async function handleRoutedMessage(incomingMsg) {
+  if (!messageRouter) return;
+
+  // Validate and process message
+  const result = messageRouter.processMessage(incomingMsg);
+
+  if (!result.processed) {
+    log(`[ROUTING] Message rejected: ${result.reason}`);
+    return;
+  }
+
+  // Message is for us
+  if (result.forUs) {
+    log(`[ROUTING] Message delivered from ${incomingMsg.from}`);
+    log(`  Content: ${incomingMsg.content}`);
+    log(`  Path: ${incomingMsg.path.join(" -> ")}`);
+    log(`  TTL Remaining: ${messageRouter.getRemainingTtl(incomingMsg)}s`);
+    return;
+  }
+
+  // Message not for us - relay to other peers
+  log(`[ROUTING] Forwarding message to ${incomingMsg.to}`);
+  const relayResult = relayForwarder.relayMessage(incomingMsg, Object.keys(peers));
+  
+  if (relayResult.success && relayResult.relayed.length > 0) {
+    log(`[ROUTING] Relayed to ${relayResult.relayed.length} peer(s)`);
+  }
+}
+
 function deriveSessionKeys(username) {
   const peer = peers[username];
   if (!peer || peer.session.ready) return;
@@ -482,12 +555,20 @@ document.getElementById("loginBtn").onclick = async () => {
   myIdentity = await loadOrCreateIdentity(myUsername);
   log("Identity pubkey (b64): " + myIdentity.pubB64.slice(0, 16) + "...");
 
+  // ==================== INITIALIZE MESSAGE ROUTING ====================
+  messageRouter = new MessageRouter(myUsername);
+  relayForwarder = new RelayForwarder(messageRouter, peers, ws);
+  log("[ROUTING] Message router initialized");
+
   ws = new WebSocket("ws://localhost:8000/ws");
 
   ws.onopen = () => {
     setStatus("signaling connected");
     // We send identity pubkey to server (optional for now, but good practice)
     wsSend({ type: "login", username: myUsername, ik_pub: myIdentity.pubB64 });
+    
+    // ==================== START CLEANUP INTERVAL ====================
+    startRoutingCleanup();
   };
 
   ws.onmessage = async (ev) => {
@@ -534,3 +615,85 @@ document.getElementById("sendBtn").onclick = () => {
   broadcastMessage(text);
   log("TX: " + text);
 };
+
+// ==================== MESSAGE ROUTING HELPERS ====================
+
+/**
+ * Send a message with routing metadata
+ */
+function sendRoutedMessage(toPeer, content) {
+  if (!messageRouter) {
+    log("[ERROR] Message router not initialized");
+    return;
+  }
+
+  // Create routable message
+  const msg = messageRouter.createMessage(toPeer, content, {
+    ttl: 300,
+    encrypted: false
+  });
+
+  log(`[ROUTING] Sending message ${msg.id} to ${toPeer}`);
+
+  // Try direct connection first
+  if (peers[toPeer] && peers[toPeer].dc && peers[toPeer].dc.readyState === "open") {
+    peers[toPeer].dc.send(JSON.stringify({
+      type: "routed_message",
+      payload: msg
+    }));
+    log(`[ROUTING] Sent directly to ${toPeer}`);
+    return;
+  }
+
+  // Try relay through other peers
+  log(`[ROUTING] ${toPeer} not directly connected, attempting relay...`);
+  const result = relayForwarder.relayMessage(msg, Object.keys(peers));
+  if (result.success) {
+    log(`[ROUTING] Message forwarded to relay peers`);
+  } else {
+    log(`[ROUTING] Relay failed: ${result.reason}`);
+  }
+}
+
+/**
+ * Start periodic cleanup of message and relay caches
+ */
+function startRoutingCleanup() {
+  // Cleanup every 60 seconds
+  setInterval(() => {
+    if (!messageRouter || !relayForwarder) return;
+
+    try {
+      // Cleanup message cache (remove messages older than 5 min)
+      messageRouter.messageCache.cleanup(300000);
+
+      // Cleanup relay cache (remove entries older than 10 min)
+      relayForwarder.cleanup(600000);
+
+      log("[ROUTING] Cache cleanup completed");
+    } catch (e) {
+      console.error("Cleanup error:", e);
+    }
+  }, 60000);
+}
+
+/**
+ * Display routing statistics (for debugging)
+ */
+function showRoutingStats() {
+  if (!messageRouter || !relayForwarder) {
+    console.log("Routing not initialized");
+    return;
+  }
+
+  const stats = {
+    username: myUsername,
+    cached_messages: messageRouter.messageCache.cache.size,
+    relay_cache_size: relayForwarder.relayCache.size,
+    connected_peers: Object.keys(peers).filter(p => peers[p].connected).length,
+    default_ttl: messageRouter.defaultTtl
+  };
+
+  console.table(stats);
+  return stats;
+}

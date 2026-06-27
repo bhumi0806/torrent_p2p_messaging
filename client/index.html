@@ -78,6 +78,10 @@
   Connect to Selected
 </button>
 
+<h4>Connected Peers</h4>
+<ul id="connectedPeers" style="min-height: 60px; border: 1px solid #ccc; border-radius: 4px; padding: 12px; background: #fafafa; list-style: none;
+  margin: 4px 0; max-width: 300px;"></ul>
+
 <hr/>
 
 <div>
@@ -87,6 +91,15 @@
 
 <pre id="log"></pre>
 
+<script type="importmap">
+{
+  "imports": {
+    "libsodium-wrappers": "https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.11/+esm"
+  }
+}
+</script>
+
+<script src="./messageRouter.js"></script>
 <script type="module" src="./app.js"></script>
 
 </body>

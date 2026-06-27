@@ -1,0 +1,20 @@
+{
+  "files.exclude": {
+    "**/.agents": true,
+    "**/.git": true,
+    "**/.vscode": true,
+    "**/.venv": true,
+    "**/node_modules": true,
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  },
+  "search.exclude": {
+    "**/.agents": true,
+    "**/.vscode": true,
+    "**/.venv": true,
+    "**/node_modules": true,
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  },
+  "explorer.sortOrder": "default"
+}
