@@ -45,13 +45,7 @@ torrent_p2p_messaging/
 │   │   └── types/
 │   └── test-join.js
 ├── assets/
-├── Project.md
-├── Architecture.md
-├── PRD.md
-├── rules.md
-├── phase.md
-├── design.md
-├── memory.md
+├── docs/
 └── README.md
 ```
 
