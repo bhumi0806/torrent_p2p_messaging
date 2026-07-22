@@ -3,4 +3,16 @@ node_modules/
 __pycache__/
 *.py[cod]
 .env
+.env.*
+!.env.example
 .DS_Store
+main.py
+message_routing.py
+oldApp.ts
+client/dist/
+server/dist/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt

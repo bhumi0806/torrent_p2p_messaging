@@ -1,0 +1,17 @@
+export enum TransferStatus {
+
+    PENDING = "PENDING",
+
+    TRANSFERRING = "TRANSFERRING",
+
+    PAUSED = "PAUSED",
+
+    COMPLETED = "COMPLETED",
+
+    CANCELLED = "CANCELLED",
+
+    FAILED = "FAILED",
+
+    VERIFIED = "VERIFIED"
+
+}

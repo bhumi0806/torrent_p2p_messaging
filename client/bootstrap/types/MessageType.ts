@@ -1,0 +1,10 @@
+export enum MessageType {
+    REGISTER = "REGISTER",
+    PEER_LIST = "PEER_LIST",
+    PEER_JOINED = "PEER_JOINED",
+    PEER_LEFT = "PEER_LEFT",
+    OFFER = "OFFER",
+    ANSWER = "ANSWER",
+    ICE_CANDIDATE = "ICE_CANDIDATE",
+    ERROR = "ERROR"
+}

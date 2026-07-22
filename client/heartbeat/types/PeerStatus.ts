@@ -1,0 +1,15 @@
+export enum PeerStatus {
+
+    CONNECTING = "CONNECTING",
+
+    CONNECTED = "CONNECTED",
+
+    ALIVE = "ALIVE",
+
+    IDLE = "IDLE",
+
+    UNRESPONSIVE = "UNRESPONSIVE",
+
+    DISCONNECTED = "DISCONNECTED"
+
+}

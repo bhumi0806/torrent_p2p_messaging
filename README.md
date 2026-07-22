@@ -1,185 +1,117 @@
-# P2P Encrypted Chat
+# Torrent P2P Messaging
 
-A browser-based peer-to-peer chat prototype with a Python signaling server. The app lets users log in with a username, discover online peers, establish WebRTC data channels, and exchange encrypted messages using libsodium.
+Torrent P2P Messaging is a browser-based peer-to-peer messaging prototype focused on secure communication, WebRTC transport, and modular client-side architecture. The project combines a TypeScript client application with a Node.js WebSocket bootstrap server to support peer discovery, signaling, encrypted chat, file transfer, heartbeat monitoring, and reconnection.
 
-## Project Overview
+## What the project does
 
-This project demonstrates a hybrid chat architecture:
+- Lets users join a shared bootstrap network with a username.
+- Discovers online peers through the signaling server.
+- Establishes direct WebRTC data-channel connections.
+- Sends encrypted messages using client-side crypto primitives.
+- Supports file transfer, heartbeat checks, and reconnect workflows.
+- Keeps the server lightweight by coordinating signaling rather than relaying every message.
 
-- A FastAPI server handles login, online user discovery, WebSocket signaling, and fallback message routing.
-- Browser clients use WebRTC data channels for direct peer-to-peer communication.
-- Client-side cryptography creates local identities, performs a signed handshake, derives session keys, and encrypts messages before sending them over the data channel.
-- Routing helpers add message IDs, TTL checks, duplicate suppression, path tracking, peer relay attempts, and offline queue support.
-
-The goal is to explore secure P2P messaging with a lightweight backend that coordinates peers without carrying every chat message during normal direct delivery.
-
-## Features
-
-- Username-based login.
-- Live online user list.
-- Connect-to-selected-peer workflow.
-- WebRTC offer, answer, and ICE candidate signaling.
-- P2P data channel messaging.
-- Ed25519 identity keys stored per browser username.
-- Signed ephemeral key exchange.
-- Encrypted message packets using libsodium secretbox.
-- Replay protection with message counters.
-- Connected peer list in the UI.
-- Routed message metadata with unique IDs, TTL, path tracking, and duplicate suppression.
-- Server-side offline queue for routed messages.
-- Server stats endpoint at `/stats`.
-
-## Architecture
+## Current project structure
 
 ```text
-Browser Client A                  FastAPI Server                  Browser Client B
-----------------                  --------------                  ----------------
-index.html                        main.py                         index.html
-app.js             WebSocket      WebSocket endpoint              app.js
-messageRouter.js  <----------->   signaling relay   <-----------> messageRouter.js
-      |                            message queue                         |
-      |                                                                  |
-      +---------------------- WebRTC Data Channel -----------------------+
-                         encrypted P2P messages
+torrent_p2p_messaging/
+├── client/
+│   ├── app.ts
+│   ├── index.html
+│   ├── package.json
+│   ├── bootstrap/
+│   ├── encryption/
+│   ├── FileTransfer/
+│   ├── heartbeat/
+│   ├── identity/
+│   ├── integration/
+│   ├── messaging/
+│   ├── peerDiscovery/
+│   ├── reconnection/
+│   └── webrtc/
+├── server/
+│   ├── main.ts
+│   ├── package.json
+│   ├── requirements.txt
+│   ├── bootstrap/
+│   │   ├── bootstrapServer.ts
+│   │   ├── config/
+│   │   ├── handlers/
+│   │   ├── managers/
+│   │   ├── models/
+│   │   ├── network/
+│   │   ├── protocol/
+│   │   ├── rateLimit/
+│   │   └── types/
+│   └── test-join.js
+├── assets/
+├── Project.md
+├── Architecture.md
+├── PRD.md
+├── rules.md
+├── phase.md
+├── design.md
+├── memory.md
+└── README.md
 ```
 
-The server is responsible for coordination:
+## Core architecture
 
-- Tracks connected users.
-- Broadcasts online user lists.
-- Relays WebRTC signaling messages.
-- Validates routed messages.
-- Queues routed messages for offline users.
+The application is split into two main layers:
 
-The client is responsible for communication and encryption:
+- Client layer: orchestration, identity, encryption, messaging, WebRTC, file transfer, heartbeat, and reconnection modules.
+- Server layer: bootstrap WebSocket server, packet handling, peer management, rate limiting, and signaling logic.
 
-- Creates and stores local identity keys.
-- Establishes WebRTC peer connections.
-- Performs the cryptographic handshake.
-- Encrypts and decrypts chat messages.
-- Attempts peer relay for routed messages.
+The runtime flow is:
 
-For deeper details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MESSAGE_ROUTING_GUIDE.md](docs/MESSAGE_ROUTING_GUIDE.md).
+1. The client connects to the bootstrap server.
+2. The server tracks peer presence and relays signaling packets.
+3. The client creates or joins WebRTC sessions.
+4. The messaging layer encrypts data and exchanges it over the data channel.
+5. File transfer, heartbeat, and reconnection layers operate independently on top of the same transport.
 
-## Tech Stack
+## Tech stack
 
-| Layer | Technology |
-| --- | --- |
-| Frontend | HTML, CSS, JavaScript |
-| Frontend dev server | Vite |
-| P2P transport | WebRTC DataChannel |
-| Signaling transport | WebSocket |
-| Backend | Python, FastAPI |
-| Backend server | Uvicorn |
-| Cryptography | libsodium-wrappers |
-| Package management | npm, pip |
+- Frontend: TypeScript, HTML, Vite
+- P2P transport: WebRTC DataChannel
+- Signaling: WebSocket via Node.js
+- Backend: TypeScript runtime with Node.js
+- Cryptography: libsodium-wrappers
+- Package management: npm
 
-## Folder Structure
+## Setup
 
-```text
-D:\torrent
-|-- assets
-|   |-- login.png
-|   `-- chat_sent.png
-|-- client
-|   |-- index.html
-|   |-- app.js
-|   `-- messageRouter.js
-|-- server
-|   |-- main.py
-|   |-- message_routing.py
-|   `-- requirements.txt
-|-- docs
-|   |-- QUICK_START.md
-|   |-- ARCHITECTURE.md
-|   |-- MESSAGE_ROUTING_GUIDE.md
-|   |-- TROUBLESHOOTING.md
-|   `-- other reference docs
-|-- package.json
-|-- package-lock.json
-|-- .gitignore
-`-- README.md
-```
-
-## Installation
-
-Install the frontend dependencies:
+### Client
 
 ```powershell
-cd D:\torrent
+cd d:\torrent_p2p_messaging\client
 npm install
-```
-
-Create and activate a Python virtual environment:
-
-```powershell
-cd D:\torrent
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Install the backend dependencies:
-
-```powershell
-cd D:\torrent\server
-pip install -r requirements.txt
-```
-
-## Running the Project
-
-Start the FastAPI signaling server:
-
-```powershell
-cd D:\torrent\server
-python -m uvicorn main:app --reload
-```
-
-Start the Vite frontend server in a second terminal:
-
-```powershell
-cd D:\torrent
 npm run dev
 ```
 
-Open the frontend:
+### Server
 
-```text
-http://localhost:5173
+```powershell
+cd d:\torrent_p2p_messaging\server
+npm install
+npm run dev
 ```
 
-Open two browser windows or profiles, log in with different usernames, connect one user to the other, and send a message.
+Then open the client in a browser at the Vite address shown in the terminal, typically http://localhost:5173.
 
-Backend status is available at:
+## Development notes
 
-```text
-http://localhost:8000/stats
-```
+- Use the existing module boundaries instead of introducing a new framework layer.
+- Keep transport, encryption, and UI orchestration separated.
+- Prefer small focused services over large monolithic handlers.
+- Handle invalid packets, failed connections, and crypto edge cases gracefully.
 
-## Screenshots
+## Project documents
 
-### Login
-
-![Login screen](assets/login.png)
-
-### Message Sent
-
-![Chat message sent](assets/chat_sent.png)
-
-## Future Work
-
-- Add persistent user accounts instead of local demo usernames.
-- Store offline queued messages in a database.
-- Add message history in the UI.
-- Add file transfer over WebRTC data channels.
-- Improve the UI layout and mobile responsiveness.
-- Add automated tests for routing and message validation.
-- Add TURN server support for harder NAT/firewall cases.
-- Add production configuration for CORS, HTTPS, and secure WebSocket URLs.
-- Replace demo identity trust with a stronger verification model.
-
-## More Documentation
-
-- [Quick Start](docs/QUICK_START.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Quick Reference](docs/QUICK_REFERENCE.md)
+- [Project.md](Project.md)
+- [Architecture.md](Architecture.md)
+- [PRD.md](PRD.md)
+- [rules.md](rules.md)
+- [phase.md](phase.md)
+- [design.md](design.md)
+- [memory.md](memory.md)
