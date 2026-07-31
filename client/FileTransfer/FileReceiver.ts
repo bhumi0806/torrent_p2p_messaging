@@ -26,7 +26,12 @@ export class FileReceiver {
 
         private readonly integrityVerifier: IntegrityVerifier,
 
-        private readonly fileAssembler: FileAssembler
+        private readonly fileAssembler: FileAssembler,
+
+        private readonly completedCallback?: (
+            metadata: FileMetadata,
+            file: Uint8Array
+        ) => void
 
     ) {}
 
@@ -252,7 +257,10 @@ export class FileReceiver {
 
     ): void {
 
-        // Implement in UI/Application layer.
+        this.completedCallback?.(
+            metadata,
+            file
+        );
 
     }
 

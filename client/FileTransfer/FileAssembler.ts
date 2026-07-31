@@ -49,21 +49,13 @@ export class FileAssembler {
 
         for (const chunk of chunks) {
 
-            const plaintext =
+            const bytes =
 
-                this.encryptionManager.decrypt(
+                this.encryptionManager.decryptBytes(
 
                     metadata.getSenderId(),
 
                     chunk.getEncryptedChunk()
-
-                );
-
-            const bytes =
-
-                new TextEncoder().encode(
-
-                    plaintext
 
                 );
 

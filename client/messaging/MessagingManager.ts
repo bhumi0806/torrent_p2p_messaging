@@ -48,7 +48,7 @@ export class MessagingManager {
     /**
      * Send message.
      */
-    public send(
+    public async send(
 
         connection: PeerConnection,
 
@@ -56,9 +56,9 @@ export class MessagingManager {
 
         plaintext: string
 
-    ): void {
+    ): Promise<void> {
 
-        this.sender.send(
+        await this.sender.send(
 
             connection,
 

@@ -34,6 +34,7 @@ export class App {
         new EventBus();
     private readonly context =
         new ApplicationContext();
+    private activePeerId?: string;
 
     private readonly identityManager =
         new IdentityManager();
@@ -100,7 +101,17 @@ export class App {
 
                 this.webRTCManager,
 
-                this.context
+                this.context,
+
+                (metadata, file) => {
+                    this.eventBus.emit(
+                        "FILE_RECEIVED",
+                        {
+                            metadata,
+                            file
+                        }
+                    );
+                }
 
             );
 
@@ -311,6 +322,9 @@ export class App {
         this.registerEvents();
         this.setupLoginUI();
         this.setupPeerListUI();
+        this.setupChatUI();
+        this.setupFileUI();
+        this.setupApplicationLog();
     }
 
     /**
@@ -356,7 +370,7 @@ export class App {
     private setupPeerListUI(): void {
         const userList = document.getElementById("userList") as HTMLSelectElement;
         const connectBtn = document.getElementById("connectSelected") as HTMLButtonElement;
-        const debugDiv = document.getElementById("applicationLog") as HTMLDivElement;
+            const debugDiv = document.getElementById("log") as HTMLPreElement;
 
         if (!userList || !connectBtn) {
             console.warn("User list or connect button not found in HTML");
@@ -392,7 +406,7 @@ export class App {
             }
 
             try {
-                this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
+                await this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
             } catch (error) {
                 console.error("Connection failed:", error);
                 alert(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
@@ -418,6 +432,215 @@ export class App {
         if (currentSelection && Array.from(userList.options).some(opt => opt.value === currentSelection)) {
             userList.value = currentSelection;
         }
+    }
+
+    private setupChatUI(): void {
+        const userList = document.getElementById("userList") as HTMLSelectElement;
+        const sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
+        const messageInput = document.getElementById("msg") as HTMLInputElement;
+        const chatWindow = document.getElementById("chatWindow") as HTMLDivElement;
+        const connectedPeers = document.getElementById("connectedPeers") as HTMLUListElement;
+        const status = document.getElementById("status") as HTMLElement;
+
+        if (!sendBtn || !messageInput || !chatWindow) {
+            console.warn("Chat controls not found in HTML");
+            return;
+        }
+
+        const appendMessage = (label: string, content: string) => {
+            const row = document.createElement("div");
+            row.textContent = `${label}: ${content}`;
+            chatWindow.appendChild(row);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        };
+
+        const renderConnectedPeers = () => {
+            if (!connectedPeers) {
+                return;
+            }
+
+            connectedPeers.innerHTML = "";
+
+            const connectedPeerIds = this.context.getOpenConnectedPeerIds();
+
+            if (connectedPeerIds.length === 0) {
+                return;
+            }
+
+            for (const peerId of connectedPeerIds) {
+                const item = document.createElement("li");
+                const button = document.createElement("button");
+                button.textContent = peerId === this.activePeerId
+                    ? `Active: ${peerId.substring(0, 12)}...`
+                    : `${peerId.substring(0, 12)}...`;
+                button.addEventListener("click", () => {
+                    this.activePeerId = peerId;
+                    renderConnectedPeers();
+                });
+                item.appendChild(button);
+                connectedPeers.appendChild(item);
+            }
+        };
+
+        sendBtn.addEventListener("click", async () => {
+            const selectedPeerId = this.getActivePeerId();
+            const content = messageInput.value.trim();
+
+            if (!selectedPeerId) {
+                alert("Please select a connected peer first");
+                return;
+            }
+
+            if (!content) {
+                return;
+            }
+
+            try {
+                await this.eventBus.emit("SEND_MESSAGE", {
+                    receiverId: selectedPeerId,
+                    content
+                });
+                appendMessage("Me", content);
+                messageInput.value = "";
+            } catch (error) {
+                console.error("Send failed:", error);
+                alert(`Failed to send: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+
+        messageInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                sendBtn.click();
+            }
+        });
+
+        this.eventBus.on("PEER_CONNECTED", (peerId: any) => {
+            this.activePeerId = peerId.toString();
+            if (status) {
+                status.textContent = "Connected";
+            }
+            console.log("Peer connected:", peerId.toString());
+            renderConnectedPeers();
+        });
+
+        this.eventBus.on("PEER_DISCONNECTED", () => {
+            if (status) {
+                status.textContent = "Offline";
+            }
+            if (connectedPeers) {
+                connectedPeers.innerHTML = "";
+            }
+            this.activePeerId = undefined;
+        });
+
+        this.eventBus.on("MESSAGE_RECEIVED", (payload: any) => {
+            this.activePeerId = payload.senderId.toString();
+            renderConnectedPeers();
+            appendMessage("Peer", payload.plaintext ?? "");
+        });
+    }
+
+    private setupFileUI(): void {
+        const sendFileBtn = document.getElementById("sendFileBtn") as HTMLButtonElement;
+        const fileInput = document.getElementById("fileInput") as HTMLInputElement;
+        const fileProgress = document.getElementById("fileProgress") as HTMLProgressElement;
+        const chatWindow = document.getElementById("chatWindow") as HTMLDivElement;
+
+        if (!sendFileBtn || !fileInput || !fileProgress) {
+            console.warn("File controls not found in HTML");
+            return;
+        }
+
+        sendFileBtn.addEventListener("click", async () => {
+            const receiverId = this.getActivePeerId();
+            const file = fileInput.files?.[0];
+
+            if (!receiverId) {
+                alert("Connect to a peer first");
+                return;
+            }
+
+            if (!file) {
+                alert("Choose a file first");
+                return;
+            }
+
+            try {
+                const bytes = new Uint8Array(
+                    await file.arrayBuffer()
+                );
+
+                fileProgress.value = 0;
+
+                await this.eventBus.emit("SEND_FILE", {
+                    receiverId,
+                    fileName: file.name,
+                    mimeType: file.type || "application/octet-stream",
+                    fileBytes: bytes
+                });
+            } catch (error) {
+                console.error("File send failed:", error);
+                alert(`Failed to send file: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+
+        this.eventBus.on("FILE_UPLOAD_PROGRESS", (payload: any) => {
+            fileProgress.value = payload.progress ?? 0;
+        });
+
+        this.eventBus.on("FILE_SENT", () => {
+            fileProgress.value = 100;
+        });
+
+        this.eventBus.on("FILE_RECEIVED", (payload: any) => {
+            const blob = new Blob(
+                [payload.file],
+                {
+                    type: payload.metadata.getMimeType()
+                }
+            );
+            const url = URL.createObjectURL(blob);
+            const row = document.createElement("div");
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = payload.metadata.getFileName();
+            link.textContent = `Received file: ${payload.metadata.getFileName()}`;
+            row.appendChild(link);
+            chatWindow?.appendChild(row);
+        });
+    }
+
+    private setupApplicationLog(): void {
+        const log = document.getElementById("log") as HTMLPreElement;
+
+        if (!log) {
+            return;
+        }
+
+        const append = (message: string) => {
+            const time = new Date().toLocaleTimeString();
+            log.textContent += `[${time}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        };
+
+        this.eventBus.on("LOGIN_SUCCESS", () => append("Logged in"));
+        this.eventBus.on("ONLINE_PEERS_UPDATED", (peers: any[]) => append(`Online peers: ${peers.length}`));
+        this.eventBus.on("PEER_CONNECTED", (peerId: any) => append(`Connected: ${peerId.toString()}`));
+        this.eventBus.on("MESSAGE_RECEIVED", () => append("Message received"));
+        this.eventBus.on("FILE_SENT", () => append("File sent"));
+        this.eventBus.on("FILE_RECEIVED", (payload: any) => append(`File received: ${payload.metadata.getFileName()}`));
+        this.eventBus.on("BOOTSTRAP_ERROR", (packet: any) => append(`Bootstrap error: ${JSON.stringify(packet.payload)}`));
+    }
+
+    private getActivePeerId(): string | undefined {
+        if (
+            this.activePeerId &&
+            this.context.getDataChannel(this.activePeerId)?.isOpen()
+        ) {
+            return this.activePeerId;
+        }
+
+        return this.context.getOpenConnectedPeerIds()[0];
     }
     
 

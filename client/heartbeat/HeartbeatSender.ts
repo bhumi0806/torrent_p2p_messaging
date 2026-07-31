@@ -7,6 +7,7 @@ import { PeerConnection } from "../webrtc/models/PeerConnection";
 
 import { HeartbeatPacket } from "./models/HeartbeatPacket";
 import { ApplicationContext } from "../integration/ApplicationContext";
+import { createRandomId } from "../utils/createRandomId";
 
 export class HeartbeatSender {
 
@@ -49,7 +50,7 @@ export class HeartbeatSender {
 
                 Date.now(),
 
-                crypto.randomUUID()
+                createRandomId()
 
             );
 

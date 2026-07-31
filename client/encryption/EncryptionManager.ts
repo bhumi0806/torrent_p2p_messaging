@@ -1,3 +1,5 @@
+import sodium from "libsodium-wrappers";
+
 import { PeerId } from "../identity/valueObjects/PeerID";
 
 import { SessionKey } from "./models/SessionKey";
@@ -34,6 +36,44 @@ export class EncryptionManager {
 
             sessionKey
 
+        );
+
+    }
+
+    /**
+     * Temporary LAN-demo key derivation.
+     *
+     * This lets both browsers derive the same chat key from their peer IDs.
+     * Replace this with authenticated key exchange before real use.
+     */
+    public async deriveAndStoreSessionKey(
+        localPeerId: PeerId,
+        remotePeerId: PeerId
+    ): Promise<void> {
+
+        await sodium.ready;
+
+        const ids = [
+            localPeerId.toString(),
+            remotePeerId.toString()
+        ].sort();
+
+        const material =
+            sodium.from_string(
+                `bleep-demo:${ids[0]}:${ids[1]}`
+            );
+
+        const key =
+            sodium.crypto_generichash(
+                32,
+                material,
+                null,
+                "uint8array"
+            );
+
+        this.storeSessionKey(
+            remotePeerId,
+            new SessionKey(key)
         );
 
     }

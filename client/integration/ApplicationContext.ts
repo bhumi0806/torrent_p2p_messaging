@@ -3,6 +3,7 @@ import { PeerId } from "../identity/valueObjects/PeerID";
 import { Identity } from "../identity/Identity";
 
 import { PeerConnection } from "../webrtc/models/PeerConnection";
+import { DataChannel } from "../webrtc/models/DataChannel";
 
 import { Message } from "../messaging/models/Message";
 
@@ -15,6 +16,9 @@ export class ApplicationContext {
 
     private readonly peerConnections =
         new Map<string, PeerConnection>();
+
+    private readonly dataChannels =
+        new Map<string, DataChannel>();
 
     private readonly conversations =
         new Map<string, Message[]>();
@@ -139,7 +143,7 @@ export class ApplicationContext {
      * Add connection.
      */
     public addConnection(
-        peerId: PeerId,
+        peerId: PeerId | string,
         connection: PeerConnection
 
     ): void {
@@ -161,7 +165,7 @@ export class ApplicationContext {
      */
     public getConnection(
 
-        peerId: PeerId
+        peerId: PeerId | string
 
     ): PeerConnection | undefined {
 
@@ -178,7 +182,7 @@ export class ApplicationContext {
      */
     public removeConnection(
 
-        peerId: PeerId
+        peerId: PeerId | string
 
     ): void {
 
@@ -187,6 +191,56 @@ export class ApplicationContext {
             peerId.toString()
 
         );
+
+    }
+
+    public setDataChannel(
+        peerId: PeerId | string,
+        channel: DataChannel
+    ): void {
+
+        this.dataChannels.set(
+            peerId.toString(),
+            channel
+        );
+
+    }
+
+    public getDataChannel(
+        peerId: PeerId | string
+    ): DataChannel | undefined {
+
+        return this.dataChannels.get(
+            peerId.toString()
+        );
+
+    }
+
+    public removeDataChannel(
+        peerId: PeerId | string
+    ): void {
+
+        this.dataChannels.delete(
+            peerId.toString()
+        );
+
+    }
+
+    public getConnectedPeerIds(): string[] {
+
+        return Array.from(
+            this.dataChannels.keys()
+        );
+
+    }
+
+    public getOpenConnectedPeerIds(): string[] {
+
+        return Array.from(
+            this.dataChannels.entries()
+        )
+            .filter(([, channel]) => channel.isOpen())
+            .map(([peerId]) => peerId);
 
     }
 
@@ -281,6 +335,8 @@ export class ApplicationContext {
         this.onlinePeers.clear();
 
         this.peerConnections.clear();
+
+        this.dataChannels.clear();
 
         this.conversations.clear();
 

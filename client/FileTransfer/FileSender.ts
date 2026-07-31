@@ -14,6 +14,7 @@ import { FileSerializer } from "./FileSerializer";
 
 import { FileChunk } from "./models/FileChunk";
 import { FileMetadata } from "./models/FileMetadata";
+import { createRandomId } from "../utils/createRandomId";
 
 import { TransferStatus } from "./types/TransferStatus";
 
@@ -111,7 +112,7 @@ if (!identity) {
 
             new FileMetadata(
 
-                crypto.randomUUID(),
+                createRandomId(),
 
                  identity.getPeerId(),
 
@@ -133,21 +134,27 @@ if (!identity) {
 
         const dataChannel =
 
-            this.webRTCManager
-                .createDataChannel(
+            this.context.getDataChannel(
 
-                    connection
+                receiverId
 
-                );
+            );
+
+        if (!dataChannel) {
+            throw new Error(
+                "Chat DataChannel is not available yet."
+            );
+        }
+
+        await dataChannel.waitUntilOpen();
 
         dataChannel.send(
-
-            FileSerializer.serializeMetadata(
-
-                metadata
-
-            )
-
+            JSON.stringify({
+                kind: "file-metadata",
+                payload: FileSerializer.serializeMetadata(
+                    metadata
+                )
+            })
         );
 
         metadata.setTransferStatus(
@@ -221,13 +228,12 @@ if (!identity) {
                 );
 
             dataChannel.send(
-
-                FileSerializer.serializeChunk(
-
-                    chunk
-
-                )
-
+                JSON.stringify({
+                    kind: "file-chunk",
+                    payload: FileSerializer.serializeChunk(
+                        chunk
+                    )
+                })
             );
 
             if (

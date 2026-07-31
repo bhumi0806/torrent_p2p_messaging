@@ -1,3 +1,5 @@
+import sodium from "libsodium-wrappers";
+
 export class IntegrityVerifier {
 
     /**
@@ -11,16 +13,15 @@ export class IntegrityVerifier {
             ? data
             : new Uint8Array(data);
 
-        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-
-        const hashBuffer =
-            await crypto.subtle.digest(
-                "SHA-256",
-                buffer
-            );
+        await sodium.ready;
 
         const hash =
-            new Uint8Array(hashBuffer);
+            sodium.crypto_generichash(
+                32,
+                bytes,
+                null,
+                "uint8array"
+            );
 
         return Array.from(hash)
 

@@ -8,6 +8,7 @@ import { MessageSerializer } from "./MessageSerializer";
 import { MessageType } from "./types/MessageType";
 import { DeliveryStatus } from "./types/DeliveryStatus";
 import { ApplicationContext } from "../integration/ApplicationContext";
+import { createRandomId } from "../utils/createRandomId";
 
 export class MessageSender {
 
@@ -24,7 +25,7 @@ export class MessageSender {
     /**
      * Send a text message.
      */
-    public send(
+    public async send(
 
         connection: PeerConnection,
 
@@ -32,7 +33,7 @@ export class MessageSender {
 
         plaintext: string
 
-    ): void {
+    ): Promise<void> {
 
         const encryptedMessage =
 
@@ -48,7 +49,7 @@ export class MessageSender {
 
             new MessageMetadata(
 
-                crypto.randomUUID(),
+                createRandomId(),
 
                 this.context.getIdentity()!.getPeerId(),
 
@@ -82,16 +83,25 @@ export class MessageSender {
 
         const dataChannel =
 
-            this.webRTCManager.createDataChannel(
+            this.context.getDataChannel(
 
-                connection
+                receiverId
 
             );
 
+        if (!dataChannel) {
+            throw new Error(
+                "Chat DataChannel is not available yet."
+            );
+        }
+
+        await dataChannel.waitUntilOpen();
+
         dataChannel.send(
-
-            serialized
-
+            JSON.stringify({
+                kind: "chat",
+                payload: serialized
+            })
         );
 
         metadata.setDeliveryStatus(

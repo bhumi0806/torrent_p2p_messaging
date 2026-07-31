@@ -66,6 +66,69 @@ export class DataChannel {
 
     }
 
+    public waitUntilOpen(
+        timeoutMs: number = 10000
+    ): Promise<void> {
+
+        if (this.isOpen()) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            const timeout = window.setTimeout(
+                () => {
+                    cleanup();
+                    reject(
+                        new Error("DataChannel did not open in time.")
+                    );
+                },
+                timeoutMs
+            );
+
+            const handleOpen = () => {
+                cleanup();
+                resolve();
+            };
+
+            const handleClose = () => {
+                cleanup();
+                reject(
+                    new Error("DataChannel closed before it opened.")
+                );
+            };
+
+            const cleanup = () => {
+                window.clearTimeout(timeout);
+                this.channel.removeEventListener(
+                    "open",
+                    handleOpen
+                );
+                this.channel.removeEventListener(
+                    "close",
+                    handleClose
+                );
+                this.channel.removeEventListener(
+                    "error",
+                    handleClose
+                );
+            };
+
+            this.channel.addEventListener(
+                "open",
+                handleOpen
+            );
+            this.channel.addEventListener(
+                "close",
+                handleClose
+            );
+            this.channel.addEventListener(
+                "error",
+                handleClose
+            );
+        });
+
+    }
+
     /**
      * Close channel.
      */

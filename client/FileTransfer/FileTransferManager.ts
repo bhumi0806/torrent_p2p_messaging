@@ -14,6 +14,7 @@ import { FileReceiver } from "./FileReceiver";
 
 import { FileTransfer } from "./models/FileTransfer";
 import { ApplicationContext } from "../integration/ApplicationContext";
+import { FileMetadata } from "./models/FileMetadata";
 
 export class FileTransferManager {
 
@@ -36,6 +37,11 @@ export class FileTransferManager {
         webRTCManager: WebRTCManager,
 
         context: ApplicationContext,
+
+        onFileReceived?: (
+            metadata: FileMetadata,
+            file: Uint8Array
+        ) => void
 
     ) {
 
@@ -75,7 +81,9 @@ export class FileTransferManager {
 
                 this.integrityVerifier,
 
-                this.fileAssembler
+                this.fileAssembler,
+
+                onFileReceived
 
             );
 

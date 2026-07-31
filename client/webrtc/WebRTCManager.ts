@@ -47,6 +47,58 @@ export class WebRTCManager {
 
     }
 
+    public registerIncomingChannelHandler(
+        connection: PeerConnection,
+        callback: (channel: DataChannel) => void
+    ): void {
+
+        this.dataChannelManager
+            .registerIncomingChannelHandler(
+                connection,
+                callback
+            );
+
+    }
+
+    public registerDataChannelOpenHandler(
+        channel: DataChannel,
+        callback: () => void
+    ): void {
+
+        this.dataChannelManager
+            .registerOpenHandler(
+                channel,
+                callback
+            );
+
+    }
+
+    public registerDataChannelMessageHandler(
+        channel: DataChannel,
+        callback: (message: MessageEvent) => void
+    ): void {
+
+        this.dataChannelManager
+            .registerMessageHandler(
+                channel,
+                callback
+            );
+
+    }
+
+    public registerDataChannelCloseHandler(
+        channel: DataChannel,
+        callback: () => void
+    ): void {
+
+        this.dataChannelManager
+            .registerCloseHandler(
+                channel,
+                callback
+            );
+
+    }
+
     /**
      * Create Offer.
      */

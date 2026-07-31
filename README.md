@@ -15,38 +15,38 @@ Torrent P2P Messaging is a browser-based peer-to-peer messaging prototype focuse
 
 ```text
 torrent_p2p_messaging/
-├── client/
-│   ├── app.ts
-│   ├── index.html
-│   ├── package.json
-│   ├── bootstrap/
-│   ├── encryption/
-│   ├── FileTransfer/
-│   ├── heartbeat/
-│   ├── identity/
-│   ├── integration/
-│   ├── messaging/
-│   ├── peerDiscovery/
-│   ├── reconnection/
-│   └── webrtc/
-├── server/
-│   ├── main.ts
-│   ├── package.json
-│   ├── requirements.txt
-│   ├── bootstrap/
-│   │   ├── bootstrapServer.ts
-│   │   ├── config/
-│   │   ├── handlers/
-│   │   ├── managers/
-│   │   ├── models/
-│   │   ├── network/
-│   │   ├── protocol/
-│   │   ├── rateLimit/
-│   │   └── types/
-│   └── test-join.js
-├── assets/
-├── docs/
-└── README.md
+|-- client/
+|   |-- app.ts
+|   |-- index.html
+|   |-- package.json
+|   |-- bootstrap/
+|   |-- encryption/
+|   |-- FileTransfer/
+|   |-- heartbeat/
+|   |-- identity/
+|   |-- integration/
+|   |-- messaging/
+|   |-- peerDiscovery/
+|   |-- reconnection/
+|   `-- webrtc/
+|-- server/
+|   |-- main.ts
+|   |-- package.json
+|   |-- requirements.txt
+|   |-- bootstrap/
+|   |   |-- bootstrapServer.ts
+|   |   |-- config/
+|   |   |-- handlers/
+|   |   |-- managers/
+|   |   |-- models/
+|   |   |-- network/
+|   |   |-- protocol/
+|   |   |-- rateLimit/
+|   |   `-- types/
+|   `-- test-join.js
+|-- assets/
+|-- docs/
+`-- README.md
 ```
 
 ## Core architecture
@@ -100,12 +100,29 @@ Then open the client in a browser at the Vite address shown in the terminal, typ
 - Prefer small focused services over large monolithic handlers.
 - Handle invalid packets, failed connections, and crypto edge cases gracefully.
 
+## Different-network testing
+
+Same-Wi-Fi testing can succeed with local addresses. Different-network testing needs two public pieces:
+
+1. A reachable bootstrap WebSocket server, for example `wss://your-bootstrap.example.com`.
+2. ICE servers for WebRTC NAT traversal. Keep public STUN for discovery, but use your own TURN server such as coturn or a managed TURN provider for reliable relay fallback.
+
+Client configuration can be provided with Vite environment variables. When running from `client/`, put these in `client/.env.local` or export them in the shell before `npm run dev`:
+
+```powershell
+VITE_BOOTSTRAP_URL=wss://your-bootstrap.example.com
+VITE_ICE_SERVERS_JSON='[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:turn.example.com:3478","turns:turn.example.com:5349"],"username":"user","credential":"pass"}]'
+VITE_ICE_TRANSPORT_POLICY=all
+```
+
+For a strict TURN test, temporarily set `VITE_ICE_TRANSPORT_POLICY=relay`. If two devices on different networks can chat with `relay`, the TURN path is healthy. Change it back to `all` for normal peer-to-peer operation.
+
 ## Project documents
 
-- [Project.md](Project.md)
-- [Architecture.md](Architecture.md)
-- [PRD.md](PRD.md)
-- [rules.md](rules.md)
-- [phase.md](phase.md)
-- [design.md](design.md)
-- [memory.md](memory.md)
+- [Project.md](docs/Project.md)
+- [Architecture.md](docs/Architecture.md)
+- [PRD.md](docs/PRD.md)
+- [rules.md](docs/rules.md)
+- [phase.md](docs/phase.md)
+- [design.md](docs/design.md)
+- [memory.md](docs/memory.md)

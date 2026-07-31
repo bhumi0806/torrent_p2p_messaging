@@ -130,14 +130,11 @@ export class HeartbeatController {
 
             "PEER_CONNECTED",
 
-            (peerId: PeerId) => {
-
-                this.start(
-
-                    peerId
-
-                );
-
+            () => {
+                const heartbeatStatus = document.getElementById("heartbeatStatus");
+                if (heartbeatStatus) {
+                    heartbeatStatus.textContent = "Disabled";
+                }
             }
 
         );

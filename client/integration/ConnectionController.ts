@@ -4,6 +4,7 @@ import { BootstrapClient } from "../bootstrap/bootstrapClient";
 
 import { WebRTCManager } from "../webrtc/WebRTCManager";
 import { PeerConnection } from "../webrtc/models/PeerConnection";
+import { DataChannel } from "../webrtc/models/DataChannel";
 
 import { EncryptionManager } from "../encryption/EncryptionManager";
 
@@ -31,30 +32,52 @@ export class ConnectionController {
      */
     public async connect(
     
-        peerId: PeerId
+        peerId: PeerId | string
 
     ): Promise<void> {
-        if (this.context.getConnection(peerId)) {
-    return;
-}
+        const remotePeerId = this.toPeerId(peerId);
+
+        if (this.context.getConnection(remotePeerId)) {
+            const channel = this.context.getDataChannel(remotePeerId);
+            if (channel?.isOpen()) {
+                this.eventBus.emit(
+                    "PEER_CONNECTED",
+                    remotePeerId
+                );
+            }
+            return;
+        }
 
         const connection =
 
             this.webRTCManager.createConnection(
-                peerId
+                remotePeerId
             );
 
         this.context.addConnection(
 
-            peerId,
+            remotePeerId,
 
             connection
 
         );
 
+        await this.prepareSessionKey(remotePeerId);
+
         this.registerIceCandidateRelay(
             connection,
-            peerId
+            remotePeerId
+        );
+
+        const channel =
+            this.webRTCManager.createDataChannel(
+                connection,
+                "chat"
+            );
+
+        this.registerDataChannel(
+            remotePeerId,
+            channel
         );
 
         const offer =
@@ -65,7 +88,7 @@ export class ConnectionController {
 
         await this.bootstrapClient.sendOffer(
 
-            peerId,
+            remotePeerId,
 
             offer
 
@@ -78,32 +101,44 @@ export class ConnectionController {
      */
     public async handleOffer(
 
-        senderId: PeerId,
+        senderId: PeerId | string,
 
         offer: RTCSessionDescriptionInit
 
     ): Promise<void> {
-        if (this.context.getConnection(senderId)) {
+        const remotePeerId = this.toPeerId(senderId);
+
+        if (this.context.getConnection(remotePeerId)) {
     return;
 }
 
         const connection =
 
             this.webRTCManager.createConnection(
-                senderId
+                remotePeerId
             );
 
         this.context.addConnection(
 
-            senderId,
+            remotePeerId,
 
             connection
 
         );
 
+        await this.prepareSessionKey(remotePeerId);
+
         this.registerIceCandidateRelay(
             connection,
-            senderId
+            remotePeerId
+        );
+
+        this.webRTCManager.registerIncomingChannelHandler(
+            connection,
+            (channel) => this.registerDataChannel(
+                remotePeerId,
+                channel
+            )
         );
 
         await this.webRTCManager.setRemoteDescription(
@@ -124,7 +159,7 @@ export class ConnectionController {
 
         await this.bootstrapClient.sendAnswer(
 
-            senderId,
+            remotePeerId,
 
             answer
 
@@ -137,16 +172,17 @@ export class ConnectionController {
      */
     public async handleAnswer(
 
-        senderId: PeerId,
+        senderId: PeerId | string,
 
         answer: RTCSessionDescriptionInit
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(senderId);
 
         const connection =
 
             this.context.getConnection(
-                senderId
+                remotePeerId
             );
 
         if (!connection) {
@@ -165,19 +201,7 @@ export class ConnectionController {
 
         );
 
-    const sessionKey = this.encryptionManager.generateSessionKey();
-    this.encryptionManager.storeSessionKey(
-    senderId,
-    sessionKey
-);
-
-        this.eventBus.emit(
-
-            "PEER_CONNECTED",
-
-            senderId
-
-        );
+    await this.prepareSessionKey(remotePeerId);
 
     }
 
@@ -186,16 +210,17 @@ export class ConnectionController {
      */
     public async handleIceCandidate(
 
-        senderId: PeerId,
+        senderId: PeerId | string,
 
         candidate: RTCIceCandidateInit
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(senderId);
 
         const connection =
 
             this.context.getConnection(
-                senderId
+                remotePeerId
             );
 
         if (!connection) {
@@ -232,14 +257,144 @@ export class ConnectionController {
         );
     }
 
-    public disconnect(
-        peerId: PeerId
+    private registerDataChannel(
+        peerId: PeerId,
+        channel: DataChannel
     ): void {
+
+        this.context.setDataChannel(
+            peerId,
+            channel
+        );
+
+        this.webRTCManager.registerDataChannelOpenHandler(
+            channel,
+            () => {
+                console.log(
+                    `DataChannel open with ${peerId.toString()}`
+                );
+                this.eventBus.emit(
+                    "PEER_CONNECTED",
+                    peerId
+                );
+            }
+        );
+
+        this.webRTCManager.registerDataChannelMessageHandler(
+            channel,
+            (event) => {
+                if (typeof event.data !== "string") {
+                    return;
+                }
+
+                this.handleDataChannelMessage(
+                    peerId,
+                    event.data
+                );
+            }
+        );
+
+        this.webRTCManager.registerDataChannelCloseHandler(
+            channel,
+            () => {
+                this.context.removeDataChannel(
+                    peerId
+                );
+                this.eventBus.emit(
+                    "PEER_DISCONNECTED",
+                    peerId
+                );
+            }
+        );
+
+    }
+
+    private async prepareSessionKey(
+        peerId: PeerId
+    ): Promise<void> {
+
+        if (this.encryptionManager.hasSessionKey(peerId)) {
+            return;
+        }
+
+        const identity =
+            this.context.getIdentity();
+
+        if (!identity) {
+            throw new Error("Local identity is not initialized.");
+        }
+
+        await this.encryptionManager.deriveAndStoreSessionKey(
+            identity.getPeerId(),
+            peerId
+        );
+
+    }
+
+    private handleDataChannelMessage(
+        senderId: PeerId,
+        rawData: string
+    ): void {
+
+        let envelope: any;
+
+        try {
+            envelope = JSON.parse(rawData);
+        } catch {
+            envelope = {
+                kind: "chat",
+                payload: rawData
+            };
+        }
+
+        if (envelope.kind === "chat") {
+            this.eventBus.emit(
+                "RECEIVE_MESSAGE",
+                {
+                    senderId,
+                    encryptedMessage: envelope.payload
+                }
+            );
+            return;
+        }
+
+        if (envelope.kind === "file-metadata") {
+            this.eventBus.emit(
+                "FILE_METADATA",
+                envelope.payload
+            );
+            return;
+        }
+
+        if (envelope.kind === "file-chunk") {
+            this.eventBus.emit(
+                "FILE_CHUNK",
+                {
+                    senderId,
+                    chunk: envelope.payload
+                }
+            );
+        }
+
+    }
+
+    private toPeerId(peerId: PeerId | string): PeerId {
+
+        return typeof peerId === "string"
+            ? PeerId.fromString(peerId)
+            : peerId;
+
+    }
+
+    public disconnect(
+        peerId: PeerId | string
+    ): void {
+        const remotePeerId = this.toPeerId(peerId);
 
         const connection =
 
             this.context.getConnection(
-                peerId
+                remotePeerId
             );
 
         if (!connection) {
@@ -251,22 +406,26 @@ export class ConnectionController {
         connection.close();
 
         this.webRTCManager.removeConnection(
-            peerId
+            remotePeerId
         );
 
         this.context.removeConnection(
-            peerId
+            remotePeerId
+        );
+
+        this.context.removeDataChannel(
+            remotePeerId
         );
 
         this.encryptionManager.removeSessionKey(
-            peerId
+            remotePeerId
         );
 
         this.eventBus.emit(
 
             "PEER_DISCONNECTED",
 
-            peerId
+            remotePeerId
 
         );
 

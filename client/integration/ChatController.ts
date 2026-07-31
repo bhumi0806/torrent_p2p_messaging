@@ -24,11 +24,12 @@ export class ChatController {
      */
     public async sendMessage(
 
-        receiverId: PeerId,
+        receiverId: PeerId | string,
 
         content: string
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(receiverId);
 
         if (
 
@@ -48,7 +49,7 @@ export class ChatController {
 
             this.context.getConnection(
 
-                receiverId
+                remotePeerId
 
             );
 
@@ -66,7 +67,7 @@ export class ChatController {
 
             connection,
 
-            receiverId,
+            remotePeerId,
 
             content
 
@@ -79,25 +80,28 @@ export class ChatController {
      */
     public async receiveMessage(
 
-        senderId: PeerId,
+        senderId: PeerId | string,
 
         encryptedMessage: string
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(senderId);
 
-        const { message } =
+        const result =
 
             await this.messagingManager.receive(
 
-                senderId,
+                remotePeerId,
 
                 encryptedMessage
 
             );
 
+        const { message, plaintext } = result;
+
         this.context.addMessage(
 
-            senderId,
+            remotePeerId,
 
             message
 
@@ -107,7 +111,11 @@ export class ChatController {
 
             "MESSAGE_RECEIVED",
 
-            message
+            {
+                message,
+                plaintext,
+                senderId: remotePeerId
+            }
 
         );
 
@@ -135,13 +143,13 @@ export class ChatController {
      */
     public clearMessages(
 
-        peerId: PeerId
+        peerId: PeerId | string
 
     ): void {
 
         this.context.clearMessages(
 
-            peerId
+            this.toPeerId(peerId)
 
         );
 
@@ -149,7 +157,7 @@ export class ChatController {
 
             "CHAT_CLEARED",
 
-            peerId
+            this.toPeerId(peerId)
 
         );
 
@@ -166,7 +174,7 @@ export class ChatController {
 
             async (payload: {
 
-                receiverId: PeerId;
+                receiverId: PeerId | string;
 
                 content: string;
 
@@ -190,7 +198,7 @@ export class ChatController {
 
             async (payload: {
 
-                senderId: PeerId;
+                senderId: PeerId | string;
 
                 encryptedMessage: string;
 
@@ -223,6 +231,14 @@ export class ChatController {
             }
 
         );
+
+    }
+
+    private toPeerId(peerId: PeerId | string): PeerId {
+
+        return typeof peerId === "string"
+            ? PeerId.fromString(peerId)
+            : peerId;
 
     }
 

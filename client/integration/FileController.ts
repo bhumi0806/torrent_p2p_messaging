@@ -22,7 +22,7 @@ export class FileController {
      */
     public async sendFile(
 
-        receiverId: PeerId,
+        receiverId: PeerId | string,
 
         fileName: string,
 
@@ -31,11 +31,12 @@ export class FileController {
         fileBytes: Uint8Array
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(receiverId);
 
         const connection =
 
             this.context.getConnection(
-                receiverId
+                remotePeerId
             );
 
         if (!connection) {
@@ -50,7 +51,7 @@ export class FileController {
 
             connection,
 
-            receiverId,
+            remotePeerId,
 
             fileName,
 
@@ -110,15 +111,16 @@ export class FileController {
      */
     public async receiveChunk(
 
-        senderId: PeerId,
+        senderId: PeerId | string,
 
         chunk: string
 
     ): Promise<void> {
+        const remotePeerId = this.toPeerId(senderId);
 
         await this.fileTransferManager.receiveChunk(
 
-            senderId,
+            remotePeerId,
 
             chunk
 
@@ -162,7 +164,7 @@ export class FileController {
 
             async (payload: {
 
-                receiverId: PeerId;
+                receiverId: PeerId | string;
 
                 fileName: string;
 
@@ -210,7 +212,7 @@ export class FileController {
 
             async (payload: {
 
-                senderId: PeerId;
+                senderId: PeerId | string;
 
                 chunk: string;
 
@@ -243,6 +245,14 @@ export class FileController {
             }
 
         );
+
+    }
+
+    private toPeerId(peerId: PeerId | string): PeerId {
+
+        return typeof peerId === "string"
+            ? PeerId.fromString(peerId)
+            : peerId;
 
     }
 

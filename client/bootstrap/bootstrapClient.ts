@@ -166,13 +166,14 @@ export class BootstrapClient {
         }
 
         const sender = this.identity.getPublicIdentity().peerId.toString();
+        const targetPeerId = String(peerId);
 
         this.connection.send(
             new BootstrapPacket(
                 MessageType.OFFER,
                 {
                     senderPeerId: sender,
-                    targetPeerId: peerId,
+                    targetPeerId,
                     payload
                 }
             )
@@ -191,13 +192,14 @@ export class BootstrapClient {
         }
 
         const sender = this.identity.getPublicIdentity().peerId.toString();
+        const targetPeerId = String(peerId);
 
         this.connection.send(
             new BootstrapPacket(
                 MessageType.ANSWER,
                 {
                     senderPeerId: sender,
-                    targetPeerId: peerId,
+                    targetPeerId,
                     payload
                 }
             )
@@ -216,13 +218,14 @@ export class BootstrapClient {
         }
 
         const sender = this.identity.getPublicIdentity().peerId.toString();
+        const targetPeerId = String(peerId);
 
         this.connection.send(
             new BootstrapPacket(
                 MessageType.ICE_CANDIDATE,
                 {
                     senderPeerId: sender,
-                    targetPeerId: peerId,
+                    targetPeerId,
                     payload
                 }
             )
