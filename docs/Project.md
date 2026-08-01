@@ -33,7 +33,10 @@ Torrent P2P Messaging is a modular prototype for secure peer-to-peer communicati
 2. Improve error handling and resilience around failed handshakes.
 3. Harden encryption and identity management.
 4. Add automated validation and test coverage for key workflows.
+5. Plan the migration from centralized bootstrap signaling to invite-based peer discovery, peer exchange, and a browser-compatible DHT overlay.
 
 ## Notes
 
-The current codebase is organized around domain modules such as bootstrap, identity, encryption, messaging, file transfer, heartbeat, reconnection, and WebRTC. These modules should stay aligned with the architecture and documentation in this repository.
+The current codebase is organized around domain modules such as bootstrap, identity, encryption, messaging, file transfer, heartbeat, reconnection, invites, and WebRTC. These modules should stay aligned with the architecture and documentation in this repository.
+
+The DHT and peer exchange milestone is tracked in [dht-peer-exchange-milestone.md](dht-peer-exchange-milestone.md).

@@ -23,3 +23,11 @@
 - Extend the platform with richer file-transfer experience and persistence.
 - Evaluate stronger auth, key-management, and deployment readiness.
 - Introduce automated tests for critical workflows.
+
+## Phase 5 - Decentralized Discovery
+
+- Separate discovery and signaling behind replaceable provider interfaces.
+- Add signed peer records and local peer storage.
+- Add peer exchange over existing WebRTC data channels.
+- Build a browser-compatible DHT-style overlay for peer lookup.
+- Reduce the bootstrap signaling server from required infrastructure to an optional migration or fallback path.

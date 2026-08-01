@@ -126,3 +126,6 @@ For a strict TURN test, temporarily set `VITE_ICE_TRANSPORT_POLICY=relay`. If tw
 - [phase.md](docs/phase.md)
 - [design.md](docs/design.md)
 - [memory.md](docs/memory.md)
+- [invite-mechanism.md](docs/invite-mechanism.md)
+- [dht-peer-exchange-milestone.md](docs/dht-peer-exchange-milestone.md)
+- [session-restore.md](docs/session-restore.md)

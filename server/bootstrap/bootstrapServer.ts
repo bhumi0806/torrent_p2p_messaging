@@ -203,7 +203,7 @@ export class BootstrapServer {
 
     private getScope(packetType: string): "auth" | "public" | "authenticated" {
         if (packetType === MessageType.REGISTER) {
-            return "auth";
+            return "public";
         }
 
         return "public";

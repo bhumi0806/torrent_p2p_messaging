@@ -1,6 +1,8 @@
 import { KeyPair } from "../KeyPair";
 import { PublicIdentity } from "./PublicIdentity";
 import { PeerId } from "../valueObjects/PeerID";
+import { PublicKey } from "../valueObjects/PublicKey";
+import { PrivateKey } from "../valueObjects/PrivateKey";
 
 export class PrivateIdentity {
 
@@ -20,28 +22,18 @@ export class PrivateIdentity {
     public getPeerId(): PeerId {
         return this.publicIdentity.peerId;
     }
-    private bytesToBase64(bytes: Uint8Array): string {
 
-    let binary = "";
-
-    for (const byte of bytes) {
-
-        binary += String.fromCharCode(byte);
-
+    public getPrivateIdentity(): PrivateIdentity {
+        return this;
     }
-
-    return btoa(binary);
-
-}
-    
 
     public toJSON() {
 
         return {
 
-            publicKey: this.bytesToBase64(this.keyPair.publicKey.bytes),
+            publicKey: this.keyPair.publicKey.toBase64(),
 
-            privateKey: this.bytesToBase64(this.keyPair.privateKey.bytes),
+            privateKey: this.keyPair.privateKey.toBase64(),
 
             peerId: this.publicIdentity.peerId.toString(),
 
@@ -59,14 +51,14 @@ export class PrivateIdentity {
     }): PrivateIdentity {
 
         const keyPair = new KeyPair(
-            { toBase64: () => data.publicKey } as any,
-            { toBase64: () => data.privateKey } as any
+            PublicKey.fromBase64(data.publicKey),
+            PrivateKey.fromBase64(data.privateKey)
         );
 
         const publicIdentity = new PublicIdentity(
             PeerId.fromString(data.peerId),
             { toString: () => data.userName } as any,
-            { toBase64: () => data.publicKey } as any
+            keyPair.publicKey
         );
 
         return new PrivateIdentity(keyPair, publicIdentity);

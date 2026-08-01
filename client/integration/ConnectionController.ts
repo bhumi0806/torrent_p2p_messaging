@@ -1,4 +1,5 @@
 import { PeerId } from "../identity/valueObjects/PeerID";
+import { PublicKey } from "../identity/valueObjects/PublicKey";
 
 import { BootstrapClient } from "../bootstrap/bootstrapClient";
 
@@ -324,9 +325,41 @@ export class ConnectionController {
             throw new Error("Local identity is not initialized.");
         }
 
+        const remotePeer =
+            this.context
+                .getOnlinePeers()
+                .find(
+                    (peer: any) =>
+                        peer?.peerId === peerId.toString()
+                );
+
+        if (
+            !remotePeer ||
+            typeof remotePeer.publicKey !== "string"
+        ) {
+            throw new Error(
+                "Remote peer public key is not available."
+            );
+        }
+
+        const remotePublicKey =
+            PublicKey.fromBase64(remotePeer.publicKey);
+
+        const verifiedPeerId =
+            await PeerId.fromPublicKey(
+                remotePublicKey.bytes
+            );
+
+        if (!verifiedPeerId.equals(peerId)) {
+            throw new Error(
+                "Remote peer public key does not match peer ID."
+            );
+        }
+
         await this.encryptionManager.deriveAndStoreSessionKey(
-            identity.getPeerId(),
-            peerId
+            identity.getPrivateIdentity(),
+            peerId,
+            remotePublicKey
         );
 
     }

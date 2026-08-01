@@ -1,0 +1,5 @@
+
+> bootstrap-server@1.0.0 dev
+> tsx watch main.ts
+
+Bootstrap Server listening on 0.0.0.0:8080

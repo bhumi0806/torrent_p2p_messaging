@@ -153,6 +153,39 @@
 
         }
 
+        .inviteGrid {
+
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: start;
+
+        }
+
+        #inviteLink,
+        #incomingInvite,
+        #publicFingerprint {
+
+            width: 100%;
+
+        }
+
+        #inviteQr {
+
+            width: 220px;
+            height: 220px;
+            border: 1px solid #ccc;
+            background: #fff;
+
+        }
+
+        #inviteStatus {
+
+            margin-top: 8px;
+            min-height: 20px;
+
+        }
+
         @media (max-width: 640px) {
 
             body {
@@ -185,6 +218,12 @@
             #chatWindow {
 
                 height: 240px;
+
+            }
+
+            .inviteGrid {
+
+                grid-template-columns: 1fr;
 
             }
 
@@ -272,6 +311,76 @@ Idle
 </strong>
 
 </span>
+
+</section>
+
+<!-- INVITES -->
+
+<section>
+
+<h3>Invite & Fingerprint</h3>
+
+<div class="inviteGrid">
+
+<div>
+
+<input
+
+id="inviteLink"
+
+type="text"
+
+readonly
+
+placeholder="Login to create invite link">
+
+<button id="copyInviteBtn">
+
+Copy Invite
+
+</button>
+
+<input
+
+id="publicFingerprint"
+
+type="text"
+
+readonly
+
+placeholder="Public-key fingerprint">
+
+<input
+
+id="incomingInvite"
+
+type="text"
+
+placeholder="Paste invite link">
+
+<button id="verifyInviteBtn">
+
+Verify Invite
+
+</button>
+
+<button id="connectInviteBtn">
+
+Connect Invite
+
+</button>
+
+<div id="inviteStatus"></div>
+
+</div>
+
+<img
+
+id="inviteQr"
+
+alt="Invite QR code">
+
+</div>
 
 </section>
 

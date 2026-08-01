@@ -5,12 +5,21 @@ export class IdentityStorage {
     private static readonly STORAGE_KEY =
         "bleep.identity";
 
+    private static readonly USERNAME_STORAGE_KEY =
+        "bleep.username";
+
     /**
      * Save identity.
      */
     public static save(
         identity: PrivateIdentity
     ): void {
+
+        const username =
+            identity
+                .getPublicIdentity()
+                .username
+                .toString();
 
         localStorage.setItem(
 
@@ -20,6 +29,11 @@ export class IdentityStorage {
                 identity.toJSON()
             )
 
+        );
+
+        localStorage.setItem(
+            this.USERNAME_STORAGE_KEY,
+            username
         );
 
     }
@@ -41,8 +55,43 @@ export class IdentityStorage {
 
         }
 
-        return PrivateIdentity.fromJSON(
-            JSON.parse(data)
+        try {
+            return PrivateIdentity.fromJSON(
+                JSON.parse(data)
+            );
+        } catch (error) {
+            console.warn(
+                "IdentityStorage: failed to load stored identity.",
+                error
+            );
+
+            return null;
+        }
+
+    }
+
+    public static saveUsername(
+        username: string
+    ): void {
+
+        const trimmed =
+            username.trim();
+
+        if (!trimmed) {
+            return;
+        }
+
+        localStorage.setItem(
+            this.USERNAME_STORAGE_KEY,
+            trimmed
+        );
+
+    }
+
+    public static loadUsername(): string | null {
+
+        return localStorage.getItem(
+            this.USERNAME_STORAGE_KEY
         );
 
     }
@@ -67,6 +116,10 @@ export class IdentityStorage {
 
         localStorage.removeItem(
             this.STORAGE_KEY
+        );
+
+        localStorage.removeItem(
+            this.USERNAME_STORAGE_KEY
         );
 
     }

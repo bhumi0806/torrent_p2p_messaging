@@ -33,7 +33,14 @@ export class Identity {
      */
     public getPrivateIdentity(): PrivateIdentity {
 
-        return this.manager.getIdentity();
+        const identity =
+            this.manager.getIdentity();
+
+        if (!identity) {
+            throw new Error("Identity is not initialized.");
+        }
+
+        return identity;
 
     }
 

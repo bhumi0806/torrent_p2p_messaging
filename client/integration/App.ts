@@ -27,6 +27,7 @@ import { ReconnectionController } from "./ReconnectionController";
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 import { resolveBootstrapUrl } from "../bootstrap/bootstrapConfig";
+import { InviteManager, ParsedInvite } from "../invites/InviteManager";
 
 export class App {
 
@@ -35,6 +36,7 @@ export class App {
     private readonly context =
         new ApplicationContext();
     private activePeerId?: string;
+    private verifiedInvite?: ParsedInvite;
 
     private readonly identityManager =
         new IdentityManager();
@@ -322,9 +324,13 @@ export class App {
         this.registerEvents();
         this.setupLoginUI();
         this.setupPeerListUI();
+        this.setupInviteUI();
         this.setupChatUI();
         this.setupFileUI();
         this.setupApplicationLog();
+        this.loginController.fillUsernameFromStorage();
+
+        await this.restoreStoredSession();
     }
 
     /**
@@ -432,6 +438,134 @@ export class App {
         if (currentSelection && Array.from(userList.options).some(opt => opt.value === currentSelection)) {
             userList.value = currentSelection;
         }
+    }
+
+    private setupInviteUI(): void {
+        const inviteLink = document.getElementById("inviteLink") as HTMLInputElement;
+        const publicFingerprint = document.getElementById("publicFingerprint") as HTMLInputElement;
+        const incomingInvite = document.getElementById("incomingInvite") as HTMLInputElement;
+        const copyInviteBtn = document.getElementById("copyInviteBtn") as HTMLButtonElement;
+        const verifyInviteBtn = document.getElementById("verifyInviteBtn") as HTMLButtonElement;
+        const connectInviteBtn = document.getElementById("connectInviteBtn") as HTMLButtonElement;
+        const inviteQr = document.getElementById("inviteQr") as HTMLImageElement;
+        const inviteStatus = document.getElementById("inviteStatus") as HTMLDivElement;
+
+        if (
+            !inviteLink ||
+            !publicFingerprint ||
+            !incomingInvite ||
+            !copyInviteBtn ||
+            !verifyInviteBtn ||
+            !connectInviteBtn ||
+            !inviteQr ||
+            !inviteStatus
+        ) {
+            console.warn("Invite controls not found in HTML");
+            return;
+        }
+
+        const setInviteStatus = (
+            message: string,
+            color: string = "#333"
+        ) => {
+            inviteStatus.textContent = message;
+            inviteStatus.style.color = color;
+        };
+
+        const updateLocalInvite = async () => {
+            const identity = this.context.getIdentity();
+
+            if (!identity) {
+                return;
+            }
+
+            const localInvite =
+                await InviteManager.createInvite(identity.getPrivateIdentity());
+
+            const localInviteLink =
+                await InviteManager.createInviteLink(identity.getPrivateIdentity());
+
+            inviteLink.value = localInviteLink;
+            publicFingerprint.value = localInvite.fingerprint;
+            inviteQr.src = InviteManager.createQrImageUrl(localInviteLink);
+        };
+
+        const incomingFromUrl =
+            InviteManager.getInviteFromCurrentUrl();
+
+        if (incomingFromUrl) {
+            incomingInvite.value = incomingFromUrl;
+        }
+
+        copyInviteBtn.addEventListener("click", async () => {
+            if (!inviteLink.value) {
+                return;
+            }
+
+            await navigator.clipboard.writeText(inviteLink.value);
+            setInviteStatus("Invite copied", "green");
+        });
+
+        verifyInviteBtn.addEventListener("click", async () => {
+            try {
+                this.verifiedInvite =
+                    await InviteManager.parseInviteLink(incomingInvite.value);
+
+                if (!this.verifiedInvite.verified) {
+                    setInviteStatus("Invite verification failed", "red");
+                    return;
+                }
+
+                setInviteStatus(
+                    `Verified ${this.verifiedInvite.payload.username}: ${this.verifiedInvite.payload.fingerprint}`,
+                    "green"
+                );
+            } catch (error) {
+                this.verifiedInvite = undefined;
+                setInviteStatus(
+                    `Invalid invite: ${error instanceof Error ? error.message : String(error)}`,
+                    "red"
+                );
+            }
+        });
+
+        connectInviteBtn.addEventListener("click", async () => {
+            if (!this.verifiedInvite?.verified) {
+                verifyInviteBtn.click();
+            }
+
+            if (!this.verifiedInvite?.verified) {
+                return;
+            }
+
+            const peerId =
+                this.verifiedInvite.payload.peerId;
+
+            const peer =
+                this.context
+                    .getOnlinePeers()
+                    .find(
+                        (onlinePeer: any) =>
+                            onlinePeer?.peerId === peerId
+                    );
+
+            if (!peer) {
+                setInviteStatus("Invited peer is not online", "red");
+                return;
+            }
+
+            if (peer.publicKey !== this.verifiedInvite.payload.publicKey) {
+                setInviteStatus("Online peer key does not match invite", "red");
+                return;
+            }
+
+            await this.eventBus.emit("CONNECT_TO_PEER", peerId);
+            setInviteStatus("Connecting to invite peer", "green");
+        });
+
+        this.eventBus.on("LOGIN_SUCCESS", async () => {
+            await updateLocalInvite();
+        });
     }
 
     private setupChatUI(): void {
@@ -630,6 +764,29 @@ export class App {
         this.eventBus.on("FILE_SENT", () => append("File sent"));
         this.eventBus.on("FILE_RECEIVED", (payload: any) => append(`File received: ${payload.metadata.getFileName()}`));
         this.eventBus.on("BOOTSTRAP_ERROR", (packet: any) => append(`Bootstrap error: ${JSON.stringify(packet.payload)}`));
+    }
+
+    private async restoreStoredSession(): Promise<void> {
+
+        const errorDiv =
+            document.getElementById("loginErrorMessage") as HTMLDivElement | null;
+
+        try {
+            await this.loginController.restoreStoredLogin();
+        } catch (error) {
+            console.warn("Stored login restore failed:", error);
+
+            if (errorDiv) {
+                errorDiv.textContent =
+                    `Stored login restore failed: ${
+                        error instanceof Error
+                            ? error.message
+                            : String(error)
+                    }`;
+                errorDiv.style.display = "block";
+            }
+        }
+
     }
 
     private getActivePeerId(): string | undefined {

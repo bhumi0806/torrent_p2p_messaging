@@ -16,6 +16,8 @@
     "server/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "client/dist",
+    "server/dist"
   ]
 }

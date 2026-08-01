@@ -10,7 +10,27 @@ import { PeerId } from "./valueObjects/PeerID";
 
 export class IdentityManager {
 
-    private identity!: PrivateIdentity;
+    private identity?: PrivateIdentity;
+
+    public loadStoredIdentity(): PrivateIdentity | null {
+
+        const storedIdentity =
+            IdentityStorage.load();
+
+        if (
+            !storedIdentity ||
+            !IdentityValidator.validate(
+                storedIdentity
+            )
+        ) {
+            return null;
+        }
+
+        this.identity = storedIdentity;
+
+        return this.identity;
+
+    }
 
     /**
      * Initialize identity.
@@ -95,7 +115,7 @@ export class IdentityManager {
     /**
      * Get complete identity.
      */
-    public getIdentity(): PrivateIdentity {
+    public getIdentity(): PrivateIdentity | undefined {
 
         return this.identity;
 
@@ -106,6 +126,10 @@ export class IdentityManager {
      */
     public getPublicIdentity(): PublicIdentity {
 
+        if (!this.identity) {
+            throw new Error("Identity is not initialized.");
+        }
+
         return this.identity.getPublicIdentity();
 
     }
@@ -115,6 +139,10 @@ export class IdentityManager {
      */
     public getPeerId(): PeerId {
 
+        if (!this.identity) {
+            throw new Error("Identity is not initialized.");
+        }
+
         return this.identity.getPeerId();
 
     }
@@ -123,6 +151,10 @@ export class IdentityManager {
      * Check whether a peer is known.
      */
     public isKnownPeer(peerId: PeerId): boolean {
+
+        if (!this.identity) {
+            return false;
+        }
 
         return this.identity.getPeerId().equals(peerId);
 

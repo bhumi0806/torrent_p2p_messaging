@@ -1,6 +1,6 @@
 import { PeerId } from "../identity/valueObjects/PeerID";
 
-import { Identity } from "../identity/Identity";
+import { PrivateIdentity } from "../identity/models/PrivateIdentity";
 
 import { PeerConnection } from "../webrtc/models/PeerConnection";
 import { DataChannel } from "../webrtc/models/DataChannel";
@@ -9,7 +9,7 @@ import { Message } from "../messaging/models/Message";
 
 export class ApplicationContext {
 
-    private identity?: Identity;
+    private identity?: PrivateIdentity;
 
     private readonly onlinePeers =
         new Map<string, any>();
@@ -27,7 +27,7 @@ export class ApplicationContext {
      * Store local identity.
      */
     public setIdentity(
-        identity: Identity
+        identity: PrivateIdentity
     ): void {
 
         this.identity = identity;
@@ -38,7 +38,7 @@ export class ApplicationContext {
      * Get local identity.
      */
     public getIdentity():
-        Identity | undefined {
+        PrivateIdentity | undefined {
 
         return this.identity;
 

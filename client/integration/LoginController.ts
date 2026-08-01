@@ -6,6 +6,7 @@ import { BootstrapClient } from "../bootstrap/bootstrapClient";
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 import { resolveBootstrapUrl } from "../bootstrap/bootstrapConfig";
+import { PrivateIdentity } from "../identity/models/PrivateIdentity";
 
 export class LoginController {
 
@@ -24,23 +25,23 @@ export class LoginController {
     /**
      * Initialize login.
      */
-    public async initialize(): Promise<void> {
+    public async initialize(
+        options: {
+            restoreStored?: boolean;
+        } = {}
+    ): Promise<void> {
 
-        let identity: any;
+        let identity: PrivateIdentity | undefined | null;
 
-        if (
+        identity =
+            this.identityManager.getIdentity();
 
-            this.identityManager.getIdentity()
-
-        ) {
-
+        if (!identity && options.restoreStored) {
             identity =
-
-                this.identityManager.getIdentity();
-
+                this.identityManager.loadStoredIdentity();
         }
 
-        else {
+        if (!identity) {
 
             const input = document.getElementById("me") as HTMLInputElement;
             const username = input.value.trim();
@@ -48,10 +49,12 @@ export class LoginController {
                throw new Error("Username is required. Please enter a username.");
             }
 
-            IdentityStorage.clear();
+            IdentityStorage.saveUsername(username);
             identity = await this.identityManager.initialize(username);
 
         }
+
+        this.fillUsernameInput(identity);
 
         this.context.setIdentity(identity);
         this.bootstrapClient.setIdentity(identity);
@@ -67,6 +70,45 @@ export class LoginController {
         }
 
         this.eventBus.emit("LOGIN_SUCCESS",identity);
+
+    }
+
+    public async restoreStoredLogin(): Promise<boolean> {
+
+        this.fillUsernameFromStorage();
+
+        const identity =
+            this.identityManager.loadStoredIdentity();
+
+        if (!identity) {
+            return false;
+        }
+
+        await this.initialize({
+            restoreStored: true
+        });
+
+        return true;
+
+    }
+
+    public fillUsernameFromStorage(): void {
+
+        const input =
+            document.getElementById("me") as HTMLInputElement | null;
+
+        if (!input || input.value.trim()) {
+            return;
+        }
+
+        const username =
+            IdentityStorage.loadUsername();
+
+        if (!username) {
+            return;
+        }
+
+        input.value = username;
 
     }
 
@@ -98,6 +140,25 @@ export class LoginController {
             }
 
         );
+
+    }
+
+    private fillUsernameInput(
+        identity: PrivateIdentity
+    ): void {
+
+        const input =
+            document.getElementById("me") as HTMLInputElement | null;
+
+        if (!input) {
+            return;
+        }
+
+        input.value =
+            identity
+                .getPublicIdentity()
+                .username
+                .toString();
 
     }
 

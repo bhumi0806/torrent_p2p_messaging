@@ -22,8 +22,24 @@ export function resolveBootstrapUrl(defaultUrl: string = "ws://localhost:8080"):
         return envUrl;
     }
 
+    if (
+        window.location.protocol === "https:" &&
+        !isLocalHost(window.location.hostname)
+    ) {
+        return `${window.location.origin.replace(/^http/, "ws")}/bootstrap`;
+    }
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.hostname || "localhost";
 
     return `${protocol}//${host}:8080`;
+}
+
+function isLocalHost(hostname: string): boolean {
+    return (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "[::1]" ||
+        hostname === "::1"
+    );
 }

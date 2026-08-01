@@ -2,7 +2,7 @@ import { BootstrapConnection } from "./bootstrapConnection";
 import { BootstrapEventHandler } from "./bootstrapEventHandler";
 import { BootstrapState } from "./bootstrapState";
 
-import { Identity } from "../identity/Identity";
+import { PrivateIdentity } from "../identity/models/PrivateIdentity";
 
 import { BootstrapPacket } from "./protocol/bootstrapPacket";
 
@@ -15,7 +15,7 @@ export class BootstrapClient {
     private readonly connection: BootstrapConnection;
 
     private readonly eventHandler: BootstrapEventHandler;
-    private identity?: Identity;
+    private identity?: PrivateIdentity;
     constructor(
         eventHandler: BootstrapEventHandler
     ) {
@@ -58,7 +58,7 @@ export class BootstrapClient {
 
     }
     public setIdentity(
-    identity: Identity
+    identity: PrivateIdentity
 ): void {
 
     this.identity = identity;

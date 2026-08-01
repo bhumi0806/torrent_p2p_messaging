@@ -1,6 +1,8 @@
 import sodium from "libsodium-wrappers";
 
 import { PeerId } from "../identity/valueObjects/PeerID";
+import { PublicKey } from "../identity/valueObjects/PublicKey";
+import { PrivateIdentity } from "../identity/models/PrivateIdentity";
 
 import { SessionKey } from "./models/SessionKey";
 import { EncryptedMessage } from "./models/EncryptedMessage";
@@ -40,27 +42,51 @@ export class EncryptionManager {
 
     }
 
-    /**
-     * Temporary LAN-demo key derivation.
-     *
-     * This lets both browsers derive the same chat key from their peer IDs.
-     * Replace this with authenticated key exchange before real use.
-     */
     public async deriveAndStoreSessionKey(
-        localPeerId: PeerId,
-        remotePeerId: PeerId
+        localIdentity: PrivateIdentity,
+        remotePeerId: PeerId,
+        remotePublicKey: PublicKey
     ): Promise<void> {
 
         await sodium.ready;
 
-        const ids = [
-            localPeerId.toString(),
-            remotePeerId.toString()
-        ].sort();
+        const localPeerId =
+            localIdentity.getPeerId();
+
+        const localKeyPair =
+            localIdentity.getKeyPair();
+
+        const localCurveSecretKey =
+            sodium.crypto_sign_ed25519_sk_to_curve25519(
+                localKeyPair.privateKey.bytes
+            );
+
+        const remoteCurvePublicKey =
+            sodium.crypto_sign_ed25519_pk_to_curve25519(
+                remotePublicKey.bytes
+            );
+
+        const sharedSecret =
+            sodium.crypto_scalarmult(
+                localCurveSecretKey,
+                remoteCurvePublicKey
+            );
+
+        const context =
+            [
+                localPeerId.toString(),
+                remotePeerId.toString(),
+                localKeyPair.publicKey.toBase64(),
+                remotePublicKey.toBase64()
+            ]
+                .sort()
+                .join(":");
 
         const material =
-            sodium.from_string(
-                `bleep-demo:${ids[0]}:${ids[1]}`
+            this.concatBytes(
+                sodium.from_string("bleep-e2ee-v1:"),
+                sharedSecret,
+                sodium.from_string(context)
             );
 
         const key =
@@ -75,6 +101,30 @@ export class EncryptionManager {
             remotePeerId,
             new SessionKey(key)
         );
+
+    }
+
+    private concatBytes(
+        ...parts: Uint8Array[]
+    ): Uint8Array {
+
+        const totalLength =
+            parts.reduce(
+                (sum, part) => sum + part.length,
+                0
+            );
+
+        const result =
+            new Uint8Array(totalLength);
+
+        let offset = 0;
+
+        for (const part of parts) {
+            result.set(part, offset);
+            offset += part.length;
+        }
+
+        return result;
 
     }
 
