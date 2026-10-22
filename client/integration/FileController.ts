@@ -47,6 +47,9 @@ export class FileController {
 
         }
 
+        // Freenet Logging Tracker for local terminal debugging
+        console.log(`[FREENET OUTBOUND]: Initiating secure file distribution channel for payload: ${fileName}`);
+
         await this.fileTransferManager.sendFile(
 
             connection,

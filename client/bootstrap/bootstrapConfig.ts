@@ -1,45 +1,19 @@
-export function resolveBootstrapUrl(defaultUrl: string = "ws://localhost:8080"): string {
-    if (typeof window === "undefined") {
-        return defaultUrl;
+// Look inside your client/bootstrap/bootstrapConfig.ts file:
+export function resolveBootstrapUrl(): string {
+    // 1. Check if the URL bar has a query parameter like ?server=wss://...
+    const urlParams = new URLSearchParams(window.location.search);
+    const parameterUrl = urlParams.get("server");
+    
+    if (parameterUrl) {
+        return parameterUrl;
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const fromQuery = params.get("bootstrapUrl")?.trim();
-
-    if (fromQuery) {
-        return fromQuery;
+    // 2. Fallback to an environment variable if defined in Vercel
+    if ((window as any).env?.VITE_BOOTSTRAP_SERVER_URL) {
+        return (window as any).env.VITE_BOOTSTRAP_SERVER_URL;
     }
 
-    const fromGlobal = (window as Window & { __BOOTSTRAP_URL__?: string }).__BOOTSTRAP_URL__;
-
-    if (fromGlobal) {
-        return fromGlobal;
-    }
-
-    const envUrl = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_BOOTSTRAP_URL;
-
-    if (envUrl) {
-        return envUrl;
-    }
-
-    if (
-        window.location.protocol === "https:" &&
-        !isLocalHost(window.location.hostname)
-    ) {
-        return `${window.location.origin.replace(/^http/, "ws")}/bootstrap`;
-    }
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname || "localhost";
-
-    return `${protocol}//${host}:8080`;
-}
-
-function isLocalHost(hostname: string): boolean {
-    return (
-        hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "[::1]" ||
-        hostname === "::1"
-    );
+    // 3. Last resort prompt so the UI doesn't crash if you forget the parameter
+    const manualInput = prompt("Enter active Cloudflare Tunnel WebSocket URL (ws:// or wss://):");
+    return manualInput || "ws://localhost:8080";
 }

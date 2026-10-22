@@ -16,6 +16,9 @@ import { FileTransfer } from "./models/FileTransfer";
 import { ApplicationContext } from "../integration/ApplicationContext";
 import { FileMetadata } from "./models/FileMetadata";
 
+// Bring in our standalone routing metrics safely
+import { FreenetEngine } from "../utils/FreenetEngine";
+
 export class FileTransferManager {
 
     private readonly chunkManager =
@@ -108,6 +111,9 @@ export class FileTransferManager {
 
     ): Promise<void> {
 
+        // Freenet Diagnostic: Log that a new chunk series deployment is starting
+        console.log(`[FREENET DATA]: Segmenting data stream for routing: ${fileName}`);
+
         await this.sender.send(
 
             connection,
@@ -153,6 +159,21 @@ export class FileTransferManager {
         rawChunk: string
 
     ): Promise<void> {
+
+        // --- FREENET LAYER INTERCEPTION START ---
+        try {
+            // Natively generate a hash identifier for the transit text chunk
+            const chunkHash = await FreenetEngine.generateContentKey(rawChunk);
+            
+            // Freenet Dynamic Caching rule: Commit the individual chunk frame to the browser's storage
+            // This allows the node to act as a fractional mirror host for this piece of the file
+            localStorage.setItem(`freenet_chunk_${chunkHash.substring(0, 16)}`, rawChunk);
+            
+            console.log(`[CACHE SUCCESS]: Transit file chunk committed for hash space: ${chunkHash.substring(0, 8)}`);
+        } catch (e) {
+            console.error("FileTransferManager: Failed to calculate/cache transit chunk:", e);
+        }
+        // --- FREENET LAYER INTERCEPTION END ---
 
         await this.receiver.receiveChunk(
 

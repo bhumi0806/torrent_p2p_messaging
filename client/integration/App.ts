@@ -28,6 +28,8 @@ import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 import { resolveBootstrapUrl } from "../bootstrap/bootstrapConfig";
 import { InviteManager, ParsedInvite } from "../invites/InviteManager";
+import { FreenetEngine } from "../utils/FreenetEngine";
+
 
 export class App {
 

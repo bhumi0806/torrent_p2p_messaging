@@ -7,6 +7,9 @@ import { Message } from "../messaging/models/Message";
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 
+// Import our standalone routing utility securely
+import { FreenetEngine } from "../utils/FreenetEngine";
+
 export class ChatController {
 
     constructor(
@@ -63,6 +66,8 @@ export class ChatController {
 
         }
 
+        // Freenet Integration: The content string arriving here from App.ts 
+        // is already wrapped into a stringified Freenet envelope object.
         await this.messagingManager.send(
 
             connection,
@@ -97,7 +102,30 @@ export class ChatController {
 
             );
 
-        const { message, plaintext } = result;
+        let { message, plaintext } = result;
+
+        // --- FREENET LAYER INTERCEPTION START ---
+        try {
+            // 1. Check if the decrypted text content is a routed Freenet network envelope
+            const parsedEnvelope = JSON.parse(plaintext);
+            
+            if (parsedEnvelope && parsedEnvelope.freenetKey && parsedEnvelope.actualData) {
+                const { freenetKey, actualData } = parsedEnvelope;
+                
+                console.log(`[FREENET ENGINE]: Intercepted packet hash [${freenetKey.substring(0, 8)}] from peer ${remotePeerId.toString()}`);
+
+                // 2. Dynamic Caching Rule: Commit the transit frame directly into browser store
+                localStorage.setItem(`freenet_cache_${freenetKey}`, actualData);
+                console.log(`[CACHE SUCCESS]: Transit data committed for key space: ${freenetKey.substring(0, 12)}...`);
+
+                // 3. Override the structural plaintext stream so the core app UI shows the text inside the chat block cleanly
+                plaintext = actualData;
+            }
+        } catch {
+            // Fallback: If JSON parsing throws an exception, it is a normal string message. Let it flow down normally.
+            console.log("ChatController: Non-JSON plain data received. Skipping Freenet cache pipelines.");
+        }
+        // --- FREENET LAYER INTERCEPTION END ---
 
         this.context.addMessage(
 
