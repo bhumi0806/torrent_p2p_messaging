@@ -421,25 +421,51 @@ export class App {
         });
 
         // Handle connect button
-        connectBtn.addEventListener("click", async () => {
-            const selectedPeerId = userList.value;
-            if (!selectedPeerId) {
-                alert("Please select a peer to connect to");
-                return;
-            }
 
-            try {
-                await this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
-            } catch (error) {
-                console.error("Connection failed:", error);
-                alert(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        });
+    connectBtn.addEventListener("click", async () => {
+    console.log("[CONNECT] Button clicked");
+    logMessage("[CONNECT] Button clicked");
+
+    const selectedPeerId = userList.value;
+
+    console.log("[CONNECT] Selected peer ID:", selectedPeerId);
+    console.log(
+        "[CONNECT] Available peers:",
+        Array.from(userList.options).map(option => ({
+            label: option.textContent,
+            peerId: option.value
+        }))
+    );
+
+    if (!selectedPeerId) {
+        logMessage("[CONNECT] No peer selected");
+        alert("Please select a peer to connect to");
+        return;
+    }
+
+    try {
+        logMessage("[CONNECT] Emitting CONNECT_TO_PEER");
+        await this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
+        logMessage("[CONNECT] Event emitted successfully");
+    } catch (error) {
+        console.error("[CONNECT] Connection failed:", error);
+        logMessage(
+            "[CONNECT] Connection failed: " +
+            (error instanceof Error ? error.message : String(error))
+        );
+        alert(
+            `Failed to connect: ${
+                error instanceof Error ? error.message : String(error)
+            }`
+        );
+    }
+});
+
     }
 
     /**
      * Update the user list HTML element.
-     */
+     */ 
     private updateUserListUI(userList: HTMLSelectElement, peers: any[]): void {
         const currentSelection = userList.value;
         userList.innerHTML = "";
