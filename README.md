@@ -91,7 +91,15 @@ npm install
 npm run dev
 ```
 
-Then open the client in a browser at the Vite address shown in the terminal, typically http://localhost:5173.
+For local testing, the client connects to `ws://localhost:8080` by default. To test from another network, keep the server running and start a Cloudflare Quick Tunnel in a separate terminal:
+
+```powershell
+cloudflared tunnel --url http://localhost:8080
+```
+
+Enter the tunnel's `https://...trycloudflare.com` URL when the client asks for a bootstrap URL; it will be converted to `wss://` and saved in that browser. The tunnel URL may change when you restart `cloudflared`. Update it by opening the client with `?server=wss://your-current-tunnel.trycloudflare.com`, or configure `VITE_BOOTSTRAP_SERVER_URL` in `client/.env.local`.
+
+Then open the client in a browser at the Vite address shown in the terminal, typically http://localhost:5173. The tunnel exposes the signaling server only; peer-to-peer WebRTC still requires ICE connectivity, and different networks may need a working TURN server.
 
 ## Development notes
 

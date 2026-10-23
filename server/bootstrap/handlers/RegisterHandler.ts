@@ -82,7 +82,7 @@ export class RegisterHandler {
 
         }
 
-        this.sendPeerList(socket);
+        this.sendPeerList(socket, peerId);
 
         console.log(`RegisterHandler: sent PEER_LIST to ${username} (${peerId})`);
         this.broadcastPeerJoined(peer);
@@ -164,7 +164,8 @@ export class RegisterHandler {
      * Send currently connected peers.
      */
     private sendPeerList(
-        socket: WebSocket
+        socket: WebSocket,
+        registeringPeerId: string
     ): void {
 
         const peers =
@@ -172,7 +173,7 @@ export class RegisterHandler {
             this.peerManager
 
                 .getAllPeers()
-
+                .filter(peer => peer.peerId !== registeringPeerId)
                 .map(peer => ({
 
                     peerId: peer.peerId,

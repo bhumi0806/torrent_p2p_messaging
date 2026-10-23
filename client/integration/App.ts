@@ -289,7 +289,12 @@ export class App {
             return;
         }
 
-        this.eventBus.emit("WEBRTC_OFFER", { senderId, offer });
+        void this.eventBus.emit(
+            "WEBRTC_OFFER",
+            { senderId, offer }
+        ).catch((error) => {
+            console.error("Failed to handle WebRTC offer:", error);
+        });
     }
 
     private handleAnswerPacket(packet: any): void {
@@ -302,7 +307,12 @@ export class App {
             return;
         }
 
-        this.eventBus.emit("WEBRTC_ANSWER", { senderId, answer });
+        void this.eventBus.emit(
+            "WEBRTC_ANSWER",
+            { senderId, answer }
+        ).catch((error) => {
+            console.error("Failed to handle WebRTC answer:", error);
+        });
     }
 
     private handleIcePacket(packet: any): void {
@@ -315,7 +325,12 @@ export class App {
             return;
         }
 
-        this.eventBus.emit("WEBRTC_ICE", { senderId, candidate });
+        void this.eventBus.emit(
+            "WEBRTC_ICE",
+            { senderId, candidate }
+        ).catch((error) => {
+            console.error("Failed to handle WebRTC ICE candidate:", error);
+        });
     }
 
     /**

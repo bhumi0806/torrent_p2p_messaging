@@ -13,6 +13,8 @@ import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 
 export class ConnectionController {
+    private readonly pendingIceCandidates =
+        new Map<string, RTCIceCandidateInit[]>();
 
     constructor(
 
@@ -63,37 +65,46 @@ export class ConnectionController {
 
         );
 
-        await this.prepareSessionKey(remotePeerId);
-
-        this.registerIceCandidateRelay(
-            connection,
-            remotePeerId
-        );
-
-        const channel =
-            this.webRTCManager.createDataChannel(
+        try {
+            this.registerConnectionFailureHandler(
                 connection,
-                "chat"
+                remotePeerId
             );
 
-        this.registerDataChannel(
-            remotePeerId,
-            channel
-        );
+            await this.prepareSessionKey(remotePeerId);
 
-        const offer =
-
-            await this.webRTCManager.createOffer(
-                connection
+            this.registerIceCandidateRelay(
+                connection,
+                remotePeerId
             );
 
-        await this.bootstrapClient.sendOffer(
+            const channel =
+                this.webRTCManager.createDataChannel(
+                    connection,
+                    "chat"
+                );
 
-            remotePeerId,
+            this.registerDataChannel(
+                remotePeerId,
+                channel
+            );
 
-            offer
+            const offer =
+                await this.webRTCManager.createOffer(
+                    connection
+                );
 
-        );
+            await this.bootstrapClient.sendOffer(
+
+                remotePeerId,
+
+                offer
+
+            );
+        } catch (error) {
+            this.discardConnection(remotePeerId, connection);
+            throw error;
+        }
 
     }
 
@@ -108,63 +119,89 @@ export class ConnectionController {
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(senderId);
-
-        if (this.context.getConnection(remotePeerId)) {
-    return;
-}
-
+        const existingConnection = this.context.getConnection(remotePeerId);
+        const isNewConnection = !existingConnection;
         const connection =
+            existingConnection
+            ?? this.webRTCManager.createConnection(remotePeerId);
 
-            this.webRTCManager.createConnection(
-                remotePeerId
+        if (existingConnection) {
+            const rtcConnection = existingConnection.getConnection();
+            const localPeerId = this.context.getIdentity()?.getPeerId();
+
+            if (
+                rtcConnection.signalingState !== "have-local-offer" ||
+                !localPeerId
+            ) {
+                return;
+            }
+
+            if (localPeerId.toString() < remotePeerId.toString()) {
+                return;
+            }
+        }
+
+        try {
+            if (isNewConnection) {
+                this.context.addConnection(remotePeerId, connection);
+                this.registerConnectionFailureHandler(
+                    connection,
+                    remotePeerId
+                );
+
+                await this.prepareSessionKey(remotePeerId);
+                this.registerIceCandidateRelay(
+                    connection,
+                    remotePeerId
+                );
+            } else {
+                await connection.getConnection().setLocalDescription({
+                    type: "rollback"
+                });
+
+                this.context.getDataChannel(remotePeerId)?.close();
+                this.context.removeDataChannel(remotePeerId);
+            }
+
+            this.webRTCManager.registerIncomingChannelHandler(
+                connection,
+                (channel) => this.registerDataChannel(
+                    remotePeerId,
+                    channel
+                )
             );
 
-        this.context.addConnection(
+            await this.webRTCManager.setRemoteDescription(
 
-            remotePeerId,
+                connection,
 
-            connection
+                offer
 
-        );
+            );
 
-        await this.prepareSessionKey(remotePeerId);
-
-        this.registerIceCandidateRelay(
-            connection,
-            remotePeerId
-        );
-
-        this.webRTCManager.registerIncomingChannelHandler(
-            connection,
-            (channel) => this.registerDataChannel(
+            await this.flushPendingIceCandidates(
                 remotePeerId,
-                channel
-            )
-        );
-
-        await this.webRTCManager.setRemoteDescription(
-
-            connection,
-
-            offer
-
-        );
-
-        const answer =
-
-            await this.webRTCManager.createAnswer(
-
                 connection
-
             );
 
-        await this.bootstrapClient.sendAnswer(
+            const answer =
+                await this.webRTCManager.createAnswer(
 
-            remotePeerId,
+                    connection
 
-            answer
+                );
 
-        );
+            await this.bootstrapClient.sendAnswer(
+
+                remotePeerId,
+
+                answer
+
+            );
+        } catch (error) {
+            this.discardConnection(remotePeerId, connection);
+            throw error;
+        }
 
     }
 
@@ -202,7 +239,12 @@ export class ConnectionController {
 
         );
 
-    await this.prepareSessionKey(remotePeerId);
+        await this.flushPendingIceCandidates(
+            remotePeerId,
+            connection
+        );
+
+        await this.prepareSessionKey(remotePeerId);
 
     }
 
@@ -225,9 +267,26 @@ export class ConnectionController {
             );
 
         if (!connection) {
-
+            const queuedCandidates =
+                this.pendingIceCandidates.get(remotePeerId.toString()) ?? [];
+            queuedCandidates.push(candidate);
+            this.pendingIceCandidates.set(
+                remotePeerId.toString(),
+                queuedCandidates
+            );
             return;
 
+        }
+
+        if (!connection.getConnection().remoteDescription) {
+            const queuedCandidates =
+                this.pendingIceCandidates.get(remotePeerId.toString()) ?? [];
+            queuedCandidates.push(candidate);
+            this.pendingIceCandidates.set(
+                remotePeerId.toString(),
+                queuedCandidates
+            );
+            return;
         }
 
         await this.webRTCManager.addIceCandidate(
@@ -256,6 +315,53 @@ export class ConnectionController {
                 );
             }
         );
+    }
+
+    private registerConnectionFailureHandler(
+        connection: PeerConnection,
+        peerId: PeerId
+    ): void {
+        connection.getConnection().addEventListener(
+            "connectionstatechange",
+            () => {
+                if (connection.getConnection().connectionState === "failed") {
+                    this.disconnect(peerId);
+                }
+            }
+        );
+    }
+
+    private discardConnection(
+        peerId: PeerId,
+        connection: PeerConnection
+    ): void {
+        if (this.context.getConnection(peerId) !== connection) {
+            return;
+        }
+
+        this.webRTCManager.removeConnection(peerId);
+        this.context.removeConnection(peerId);
+        this.context.removeDataChannel(peerId);
+        this.encryptionManager.removeSessionKey(peerId);
+        this.pendingIceCandidates.delete(peerId.toString());
+    }
+
+    private async flushPendingIceCandidates(
+        peerId: PeerId,
+        connection: PeerConnection
+    ): Promise<void> {
+        const peerIdString = peerId.toString();
+        const candidates =
+            this.pendingIceCandidates.get(peerIdString) ?? [];
+
+        this.pendingIceCandidates.delete(peerIdString);
+
+        for (const candidate of candidates) {
+            await this.webRTCManager.addIceCandidate(
+                connection,
+                candidate
+            );
+        }
     }
 
     private registerDataChannel(
@@ -298,13 +404,13 @@ export class ConnectionController {
         this.webRTCManager.registerDataChannelCloseHandler(
             channel,
             () => {
-                this.context.removeDataChannel(
-                    peerId
-                );
-                this.eventBus.emit(
-                    "PEER_DISCONNECTED",
-                    peerId
-                );
+                if (this.context.getDataChannel(peerId) === channel) {
+                    this.context.removeDataChannel(peerId);
+                    this.eventBus.emit(
+                        "PEER_DISCONNECTED",
+                        peerId
+                    );
+                }
             }
         );
 
@@ -449,6 +555,7 @@ export class ConnectionController {
         this.context.removeDataChannel(
             remotePeerId
         );
+        this.pendingIceCandidates.delete(remotePeerId.toString());
 
         this.encryptionManager.removeSessionKey(
             remotePeerId

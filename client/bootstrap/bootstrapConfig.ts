@@ -1,19 +1,62 @@
-// Look inside your client/bootstrap/bootstrapConfig.ts file:
+const BOOTSTRAP_URL_STORAGE_KEY = "bleep.bootstrapUrl";
+
+function normalizeBootstrapUrl(value: string): string {
+    const trimmedValue = value.trim();
+    const withWebSocketProtocol = trimmedValue.startsWith("https://")
+        ? `wss://${trimmedValue.slice("https://".length)}`
+        : trimmedValue.startsWith("http://")
+            ? `ws://${trimmedValue.slice("http://".length)}`
+            : trimmedValue;
+    const parsedUrl = new URL(withWebSocketProtocol);
+
+    if (parsedUrl.protocol !== "ws:" && parsedUrl.protocol !== "wss:") {
+        throw new Error("Bootstrap URL must use ws:// or wss://.");
+    }
+
+    return parsedUrl.toString();
+}
+
 export function resolveBootstrapUrl(): string {
-    // 1. Check if the URL bar has a query parameter like ?server=wss://...
     const urlParams = new URLSearchParams(window.location.search);
     const parameterUrl = urlParams.get("server");
-    
+
     if (parameterUrl) {
-        return parameterUrl;
+        const bootstrapUrl = normalizeBootstrapUrl(parameterUrl);
+        window.localStorage.setItem(
+            BOOTSTRAP_URL_STORAGE_KEY,
+            bootstrapUrl
+        );
+        return bootstrapUrl;
     }
 
-    // 2. Fallback to an environment variable if defined in Vercel
-    if ((window as any).env?.VITE_BOOTSTRAP_SERVER_URL) {
-        return (window as any).env.VITE_BOOTSTRAP_SERVER_URL;
+    const env = (import.meta as ImportMeta & {
+        env?: Record<string, string | undefined>;
+    }).env;
+    const environmentUrl =
+        env?.VITE_BOOTSTRAP_SERVER_URL
+        ?? env?.VITE_BOOTSTRAP_URL;
+
+    if (environmentUrl) {
+        return normalizeBootstrapUrl(environmentUrl);
     }
 
-    // 3. Last resort prompt so the UI doesn't crash if you forget the parameter
-    const manualInput = prompt("Enter active Cloudflare Tunnel WebSocket URL (ws:// or wss://):");
-    return manualInput || "ws://localhost:8080";
+    const storedUrl = window.localStorage.getItem(BOOTSTRAP_URL_STORAGE_KEY);
+
+    if (storedUrl) {
+        return normalizeBootstrapUrl(storedUrl);
+    }
+
+    const manualInput = window.prompt(
+        "Enter the bootstrap WebSocket URL (ws:// or wss://):"
+    );
+    const bootstrapUrl = manualInput?.trim()
+        ? normalizeBootstrapUrl(manualInput)
+        : "ws://localhost:8080";
+
+    window.localStorage.setItem(
+        BOOTSTRAP_URL_STORAGE_KEY,
+        bootstrapUrl
+    );
+
+    return bootstrapUrl;
 }

@@ -30,8 +30,29 @@ export class PeerManager {
      */
     public registerPeer(peer: Peer): boolean {
 
-        if (this.peers.has(peer.peerId)) {
-            return false;
+        const existingPeer = this.peers.get(peer.peerId);
+
+        if (existingPeer) {
+            if (
+                existingPeer.username !== peer.username
+                || existingPeer.publicKey !== peer.publicKey
+            ) {
+                return false;
+            }
+
+            const previousSocket = existingPeer.getSocket();
+            this.socketIndex.delete(previousSocket);
+            existingPeer.setSocket(peer.getSocket());
+            this.socketIndex.set(peer.getSocket(), peer.peerId);
+
+            if (
+                previousSocket !== peer.getSocket()
+                && previousSocket.readyState === WebSocket.OPEN
+            ) {
+                previousSocket.close();
+            }
+
+            return true;
         }
 
         this.peers.set(peer.peerId, peer);

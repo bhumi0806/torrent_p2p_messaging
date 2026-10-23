@@ -7,6 +7,7 @@ import { PrivateIdentity } from "../identity/models/PrivateIdentity";
 import { BootstrapPacket } from "./protocol/bootstrapPacket";
 
 import { MessageType } from "./types/MessageType";
+import { ConnectionState } from "./types/ConnectionState";
 
 export class BootstrapClient {
 
@@ -16,6 +17,7 @@ export class BootstrapClient {
 
     private readonly eventHandler: BootstrapEventHandler;
     private identity?: PrivateIdentity;
+    private connectionAttempt?: Promise<void>;
     constructor(
         eventHandler: BootstrapEventHandler
     ) {
@@ -38,7 +40,19 @@ export class BootstrapClient {
         url: string
     ): Promise<void> {
 
-        await this.connection.connect(
+        if (this.state.isConnected()) {
+            return;
+        }
+
+        if (this.connectionAttempt) {
+            return this.connectionAttempt;
+        }
+
+        if (this.state.getState() === ConnectionState.CONNECTING) {
+            throw new Error("Bootstrap connection is already in progress.");
+        }
+
+        const attempt = this.connection.connect(
 
             url,
 
@@ -55,6 +69,16 @@ export class BootstrapClient {
                 console.error(error)
 
         );
+
+        this.connectionAttempt = attempt;
+
+        try {
+            await attempt;
+        } finally {
+            if (this.connectionAttempt === attempt) {
+                this.connectionAttempt = undefined;
+            }
+        }
 
     }
     public setIdentity(

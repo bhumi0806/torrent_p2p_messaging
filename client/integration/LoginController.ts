@@ -59,6 +59,11 @@ export class LoginController {
         this.context.setIdentity(identity);
         this.bootstrapClient.setIdentity(identity);
 
+        if (this.bootstrapClient.getState().isConnected()) {
+            this.eventBus.emit("LOGIN_SUCCESS", identity);
+            return;
+        }
+
         try {
             await this.bootstrapClient.connect(
 
