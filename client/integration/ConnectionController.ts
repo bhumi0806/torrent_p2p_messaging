@@ -16,6 +16,9 @@ export class ConnectionController {
     private readonly pendingIceCandidates =
         new Map<string, RTCIceCandidateInit[]>();
 
+    private readonly ignoredIceUfrags =
+        new Map<string, Set<string>>();
+
     constructor(
 
         private readonly webRTCManager: WebRTCManager,
@@ -137,6 +140,14 @@ export class ConnectionController {
             }
 
             if (localPeerId.toString() < remotePeerId.toString()) {
+                const ignoredUfrag = this.getIceUfrag(offer.sdp);
+                if (ignoredUfrag) {
+                    const peerIdString = remotePeerId.toString();
+                    const ignoredUfrags =
+                        this.ignoredIceUfrags.get(peerIdString) ?? new Set<string>();
+                    ignoredUfrags.add(ignoredUfrag);
+                    this.ignoredIceUfrags.set(peerIdString, ignoredUfrags);
+                }
                 return;
             }
         }
@@ -216,7 +227,6 @@ export class ConnectionController {
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(senderId);
-
         const connection =
 
             this.context.getConnection(
@@ -259,6 +269,13 @@ export class ConnectionController {
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(senderId);
+        const candidateUfrag = candidate.usernameFragment;
+        const ignoredUfrags =
+            this.ignoredIceUfrags.get(remotePeerId.toString());
+
+        if (candidateUfrag && ignoredUfrags?.has(candidateUfrag)) {
+            return;
+        }
 
         const connection =
 
@@ -344,6 +361,7 @@ export class ConnectionController {
         this.context.removeDataChannel(peerId);
         this.encryptionManager.removeSessionKey(peerId);
         this.pendingIceCandidates.delete(peerId.toString());
+        this.ignoredIceUfrags.delete(peerId.toString());
     }
 
     private async flushPendingIceCandidates(
@@ -356,12 +374,28 @@ export class ConnectionController {
 
         this.pendingIceCandidates.delete(peerIdString);
 
+        const remoteUfrag = this.getIceUfrag(
+            connection.getConnection().remoteDescription?.sdp
+        );
+
         for (const candidate of candidates) {
+            if (
+                candidate.usernameFragment &&
+                remoteUfrag &&
+                candidate.usernameFragment !== remoteUfrag
+            ) {
+                continue;
+            }
+
             await this.webRTCManager.addIceCandidate(
                 connection,
                 candidate
             );
         }
+    }
+
+    private getIceUfrag(sdp?: string): string | undefined {
+        return sdp?.match(/^a=ice-ufrag:(.+)$/m)?.[1];
     }
 
     private registerDataChannel(
@@ -556,6 +590,7 @@ export class ConnectionController {
             remotePeerId
         );
         this.pendingIceCandidates.delete(remotePeerId.toString());
+        this.ignoredIceUfrags.delete(remotePeerId.toString());
 
         this.encryptionManager.removeSessionKey(
             remotePeerId
