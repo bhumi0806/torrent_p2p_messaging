@@ -711,9 +711,18 @@ export class App {
         });
 
         this.eventBus.on("MESSAGE_RECEIVED", (payload: any) => {
-            this.activePeerId = payload.senderId.toString();
+            const senderId = payload.senderId.toString();
+            const sender = this.context
+                .getOnlinePeers()
+                .find((peer: any) => peer?.peerId === senderId);
+            const senderName =
+                typeof sender?.username === "string" && sender.username.trim()
+                    ? sender.username
+                    : `Peer ${senderId.substring(0, 8)}`;
+
+            this.activePeerId = senderId;
             renderConnectedPeers();
-            appendMessage("Peer", payload.plaintext ?? "");
+            appendMessage(senderName, payload.plaintext ?? "");
         });
     }
 
