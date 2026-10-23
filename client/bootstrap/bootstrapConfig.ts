@@ -18,7 +18,11 @@ function normalizeBootstrapUrl(value: string): string {
 
 export function resolveBootstrapUrl(): string {
     const urlParams = new URLSearchParams(window.location.search);
-    const parameterUrl = urlParams.get("server");
+    // Accept both the documented `server` parameter and `bootstrapUrl` links
+    // shared with the deployed client.
+    const parameterUrl =
+        urlParams.get("bootstrapUrl")
+        ?? urlParams.get("server");
 
     if (parameterUrl) {
         const bootstrapUrl = normalizeBootstrapUrl(parameterUrl);
