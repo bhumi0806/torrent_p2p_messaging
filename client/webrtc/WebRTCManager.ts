@@ -32,6 +32,16 @@ export class WebRTCManager {
     }
 
     /**
+     * Replace any existing peer connection with a clean RTCPeerConnection.
+     * The caller should immediately bind its ICE and data-channel handlers;
+     * ConnectionController does this before creating the offer.
+     */
+    public initiateConnection(peerId: PeerId): PeerConnection {
+        this.peerConnectionManager.remove(peerId);
+        return this.peerConnectionManager.create(peerId);
+    }
+
+    /**
      * Create DataChannel.
      */
     public createDataChannel(

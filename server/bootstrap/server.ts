@@ -1,5 +1,3 @@
-import { BootstrapServer } from "./bootstrapServer";
+import { startServer } from "../index";
 
-const bootstrapServer = new BootstrapServer();
-
-bootstrapServer.start();
+startServer();

@@ -33,6 +33,7 @@ export class BootstrapServer {
 
     private readonly routingHandler: RoutingHandler;
 
+
     constructor() {
 
         this.peerManager = new PeerManager();
@@ -93,6 +94,7 @@ export class BootstrapServer {
             this.handleConnection.bind(this)
         );
 
+
     }
 
     /**
@@ -103,6 +105,10 @@ export class BootstrapServer {
         this.routingHandler.dispose();
         this.server.close();
 
+    }
+
+    public getWebSocketServer(): WebSocketServer {
+        return this.server;
     }
 
     /**

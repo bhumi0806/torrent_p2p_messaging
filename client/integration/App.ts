@@ -446,7 +446,10 @@ export class App {
 
     try {
         logMessage("[CONNECT] Emitting CONNECT_TO_PEER");
-        await this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
+        await this.eventBus.emit("CONNECT_TO_PEER", {
+            peerId: selectedPeerId,
+            force: true
+        });
         logMessage("[CONNECT] Event emitted successfully");
     } catch (error) {
         console.error("[CONNECT] Connection failed:", error);

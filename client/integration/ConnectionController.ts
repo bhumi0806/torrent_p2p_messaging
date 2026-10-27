@@ -47,26 +47,39 @@ export class ConnectionController {
      * Connect to a peer.
      */
     public async connect(
-    
-        peerId: PeerId | string
+        peerId: PeerId | string,
+        options: { force?: boolean } = {}
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(peerId);
 
-        if (this.context.getConnection(remotePeerId)) {
+        const existingConnection = this.context.getConnection(remotePeerId);
+        if (existingConnection) {
             const channel = this.context.getDataChannel(remotePeerId);
+            const connectionState = existingConnection.getConnection().connectionState;
             if (channel?.isOpen()) {
                 this.eventBus.emit(
                     "PEER_CONNECTED",
                     remotePeerId
                 );
+                return;
             }
-            return;
+
+            const isDead = connectionState === "failed"
+                || connectionState === "closed"
+                || connectionState === "disconnected"
+                || channel?.getChannel().readyState === "closed";
+
+            if (!isDead && !options.force) {
+                return;
+            }
+
+            this.discardConnection(remotePeerId, existingConnection);
         }
 
         const connection =
 
-            this.webRTCManager.createConnection(
+            this.webRTCManager.initiateConnection(
                 remotePeerId
             );
 
@@ -91,7 +104,7 @@ export class ConnectionController {
                 remotePeerId
             );
 
-            const channel =
+            const dataChannel =
                 this.webRTCManager.createDataChannel(
                     connection,
                     "chat"
@@ -99,7 +112,7 @@ export class ConnectionController {
 
             this.registerDataChannel(
                 remotePeerId,
-                channel
+                dataChannel
             );
 
             const offer =
@@ -675,17 +688,24 @@ export class ConnectionController {
         });
 
         this.eventBus.on(
-
             "CONNECT_TO_PEER",
+            async (request: PeerId | string | {
+                peerId: PeerId | string;
+                force?: boolean;
+            }) => {
+                if (
+                    request &&
+                    typeof request === "object" &&
+                    "peerId" in request
+                ) {
+                    await this.connect(request.peerId, {
+                        force: request.force === true
+                    });
+                    return;
+                }
 
-            async (peerId: PeerId) => {
-
-                await this.connect(
-                    peerId
-                );
-
+                await this.connect(request as PeerId | string);
             }
-
         );
 
         this.eventBus.on(

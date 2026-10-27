@@ -16,6 +16,9 @@ export const ServerConfig = Object.freeze({
      */
     PORT: Number(process.env.BOOTSTRAP_PORT ?? 8080),
 
+    /** WebSocket ping cadence for keeping proxy/CDN connections active. */
+    CLIENT_PING_INTERVAL_MS: 30_000,
+
     /**
      * Maximum number of simultaneous peers.
      */
