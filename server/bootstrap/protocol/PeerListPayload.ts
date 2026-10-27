@@ -6,6 +6,8 @@ export interface PeerInfo {
 
     publicKey: string;
 
+    coordinate?: number;
+
 }
 
 export type PeerListPayload = PeerInfo[];

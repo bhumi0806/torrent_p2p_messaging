@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch main.ts",
+    "test:transport": "tsx test-transport-mesh.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },

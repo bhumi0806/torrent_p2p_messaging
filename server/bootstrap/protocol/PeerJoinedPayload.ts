@@ -6,4 +6,6 @@ export interface PeerJoinedPayload {
 
     publicKey: string;
 
+    coordinate?: number;
+
 }

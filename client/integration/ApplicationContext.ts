@@ -11,6 +11,8 @@ export class ApplicationContext {
 
     private identity?: PrivateIdentity;
 
+    private localCoordinate?: number;
+
     private readonly onlinePeers =
         new Map<string, any>();
 
@@ -44,12 +46,25 @@ export class ApplicationContext {
 
     }
 
+    public setLocalCoordinate(coordinate: number): void {
+        if (!Number.isFinite(coordinate) || coordinate < 0 || coordinate > 1) {
+            throw new Error("Local coordinate must be between 0 and 1.");
+        }
+        this.localCoordinate = coordinate;
+    }
+
+    public getLocalCoordinate(): number | undefined {
+        return this.localCoordinate;
+    }
+
     /**
      * Remove identity.
      */
     public clearIdentity(): void {
 
         this.identity = undefined;
+
+        this.localCoordinate = undefined;
 
     }
 
@@ -331,6 +346,8 @@ export class ApplicationContext {
     public clear(): void {
 
         this.identity = undefined;
+
+        this.localCoordinate = undefined;
 
         this.onlinePeers.clear();
 

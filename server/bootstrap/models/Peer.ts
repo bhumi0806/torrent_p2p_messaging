@@ -25,6 +25,8 @@ export class Peer {
      */
     public readonly publicKey: string;
 
+    public readonly coordinate?: number;
+
     /**
      * Active WebSocket connection.
      */
@@ -45,12 +47,14 @@ export class Peer {
         peerId: string,
         username: string,
         publicKey: string,
-        socket: WebSocket
+        socket: WebSocket,
+        coordinate?: number
     ) {
 
         this.peerId = peerId;
         this.username = username;
         this.publicKey = publicKey;
+        this.coordinate = coordinate;
 
         this.socket = socket;
 

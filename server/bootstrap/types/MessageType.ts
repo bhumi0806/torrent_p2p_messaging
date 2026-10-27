@@ -57,6 +57,11 @@ export enum MessageType {
      */
     ICE_CANDIDATE = "ICE_CANDIDATE",
 
+    FIND_CLOSEST_NODES = "FIND_CLOSEST_NODES",
+    ANONYMOUS_SIGNAL = "ANONYMOUS_SIGNAL",
+    DATA_STORE = "DATA_STORE",
+    DATA_RETURN = "DATA_RETURN",
+
     /**
      * Server → Client
      *

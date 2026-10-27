@@ -9,12 +9,14 @@ import { MessageType } from "../types/MessageType";
 
 import { RegisterHandler } from "./RegisterHandler";
 import { SignalHandler } from "./SignalHandler";
+import { RoutingHandler } from "./RoutingHandler";
 
 export class PacketDispatcher {
 
     constructor(
         private readonly registerHandler: RegisterHandler,
-        private readonly signalHandler: SignalHandler
+        private readonly signalHandler: SignalHandler,
+        private readonly routingHandler?: RoutingHandler
     ) {}
 
     public dispatch(
@@ -31,6 +33,22 @@ export class PacketDispatcher {
                     packet as BootstrapPacket<RegisterPayload>
                 );
 
+                break;
+
+            case MessageType.FIND_CLOSEST_NODES:
+                this.routingHandler?.handleFindClosest(socket, packet.payload);
+                break;
+
+            case MessageType.ANONYMOUS_SIGNAL:
+                this.routingHandler?.handleAnonymousSignal(socket, packet.payload);
+                break;
+
+            case MessageType.DATA_STORE:
+                this.routingHandler?.handleDataStore(socket, packet.payload);
+                break;
+
+            case MessageType.DATA_RETURN:
+                this.routingHandler?.handleDataReturn(socket, packet.payload);
                 break;
 
             case MessageType.OFFER:

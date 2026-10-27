@@ -4,6 +4,9 @@ import { BootstrapClient } from "../bootstrap/bootstrapClient";
 
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
+import { PublicKey } from "../identity/valueObjects/PublicKey";
+import { NodeCoordinate } from "../peerDiscovery/NodeCoordinate";
+import { SelectedNeighbor, SmallWorldTopology } from "../peerDiscovery/SmallWorldTopology";
 
 export class PeerDiscoveryController {
 
@@ -53,6 +56,34 @@ export class PeerDiscoveryController {
             filteredPeers
 
         );
+
+        const localCoordinate = this.context.getLocalCoordinate();
+        let selectedNeighbors: SelectedNeighbor[] = [];
+        if (localCoordinate !== undefined) {
+            const candidates = await Promise.all(filteredPeers.map(async (peer: any) => {
+                if (typeof peer?.peerId !== "string" || typeof peer?.publicKey !== "string") return undefined;
+                try {
+                    const key = PublicKey.fromBase64(peer.publicKey);
+                    const verifiedPeerId = await PeerId.fromPublicKey(key.bytes);
+                    if (verifiedPeerId.toString() !== peer.peerId) return undefined;
+                    return {
+                        peerId: peer.peerId,
+                        coordinate: await NodeCoordinate.fromPublicKey(key)
+                    };
+                } catch {
+                    return undefined;
+                }
+            }));
+            selectedNeighbors = SmallWorldTopology.selectNeighbors(
+                localPeerId,
+                localCoordinate,
+                candidates.filter((peer): peer is { peerId: string; coordinate: number } => !!peer)
+            );
+        }
+        this.eventBus.emit("SMALL_WORLD_NEIGHBORS_SELECTED", selectedNeighbors);
+        for (const neighbor of selectedNeighbors) {
+            this.eventBus.emit("CONNECT_TO_PEER", PeerId.fromString(neighbor.peerId));
+        }
 
         this.eventBus.emit(
 

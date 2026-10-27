@@ -93,7 +93,8 @@ export class App {
             (packet) => this.handleOfferPacket(packet),
             (packet) => this.handleAnswerPacket(packet),
             (packet) => this.handleIcePacket(packet),
-            (packet) => this.eventBus.emit("BOOTSTRAP_ERROR", packet)
+            (packet) => this.eventBus.emit("BOOTSTRAP_ERROR", packet),
+            (packet) => this.eventBus.emit("BOOTSTRAP_ROUTING_PACKET", packet)
         );
 
         this.bootstrapClient = new BootstrapClient(handler);

@@ -7,6 +7,7 @@ import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 import { resolveBootstrapUrl } from "../bootstrap/bootstrapConfig";
 import { PrivateIdentity } from "../identity/models/PrivateIdentity";
+import { NodeCoordinate } from "../peerDiscovery/NodeCoordinate";
 
 export class LoginController {
 
@@ -57,6 +58,9 @@ export class LoginController {
         this.fillUsernameInput(identity);
 
         this.context.setIdentity(identity);
+        const coordinate = await NodeCoordinate.fromPublicKey(identity.getKeyPair().publicKey);
+        this.context.setLocalCoordinate(coordinate);
+        this.bootstrapClient.setCoordinate(coordinate);
         this.bootstrapClient.setIdentity(identity);
 
         if (this.bootstrapClient.getState().isConnected()) {

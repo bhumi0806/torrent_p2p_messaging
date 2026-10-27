@@ -11,8 +11,18 @@ import { EncryptionManager } from "../encryption/EncryptionManager";
 
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
+import { RoutedPacket, SmallWorldNeighbor, SmallWorldRoutingTable } from "../webrtc/SmallWorldRoutingTable";
+import { SmallWorldRouter } from "../webrtc/SmallWorldRouter";
+import { SelectedNeighbor } from "../peerDiscovery/SmallWorldTopology";
+import { NodeCoordinate } from "../peerDiscovery/NodeCoordinate";
+import { PassiveChunkCache } from "../messaging/PassiveChunkCache";
 
 export class ConnectionController {
+    private routingTable?: SmallWorldRoutingTable;
+    private router?: SmallWorldRouter;
+    private routingPeerId?: string;
+    private routingCoordinate?: number;
+    private readonly selectedRoutingNeighbors = new Map<string, SelectedNeighbor>();
     private readonly pendingIceCandidates =
         new Map<string, RTCIceCandidateInit[]>();
 
@@ -407,6 +417,7 @@ export class ConnectionController {
             peerId,
             channel
         );
+        void this.refreshRoutingNeighbor(peerId);
 
         this.webRTCManager.registerDataChannelOpenHandler(
             channel,
@@ -418,6 +429,7 @@ export class ConnectionController {
                     "PEER_CONNECTED",
                     peerId
                 );
+                void this.refreshRoutingNeighbor(peerId);
             }
         );
 
@@ -439,6 +451,7 @@ export class ConnectionController {
             channel,
             () => {
                 if (this.context.getDataChannel(peerId) === channel) {
+                    this.routingTable?.removeNeighbor(peerId.toString());
                     this.context.removeDataChannel(peerId);
                     this.eventBus.emit(
                         "PEER_DISCONNECTED",
@@ -451,6 +464,7 @@ export class ConnectionController {
     }
 
     private async prepareSessionKey(
+
         peerId: PeerId
     ): Promise<void> {
 
@@ -521,6 +535,7 @@ export class ConnectionController {
         }
 
         if (envelope.kind === "chat") {
+            this.cacheEncryptedChunk(envelope.payload);
             this.eventBus.emit(
                 "RECEIVE_MESSAGE",
                 {
@@ -528,6 +543,16 @@ export class ConnectionController {
                     encryptedMessage: envelope.payload
                 }
             );
+            return;
+        }
+
+        if (envelope.kind === "route") {
+            try {
+                this.cacheEncryptedChunk(envelope.payload?.payload);
+                this.ensureRouter()?.receivePacket(envelope.payload as RoutedPacket);
+            } catch (error) {
+                console.warn("Dropping invalid routed packet:", error);
+            }
             return;
         }
 
@@ -549,6 +574,26 @@ export class ConnectionController {
             );
         }
 
+    }
+
+    private cacheEncryptedChunk(candidate: unknown): void {
+        let parsed = candidate;
+        if (typeof candidate === "string") {
+            try {
+                parsed = JSON.parse(candidate);
+            } catch {
+                return;
+            }
+        }
+        if (!parsed || typeof parsed !== "object") return;
+        const record = parsed as any;
+        const encrypted = record.payload?.cipherText && record.payload?.nonce
+            ? record.payload
+            : record.cipherText && record.nonce
+                ? record
+                : undefined;
+        if (!encrypted) return;
+        void PassiveChunkCache.shared.cacheChunk(JSON.stringify(encrypted)).catch(() => undefined);
     }
 
     private toPeerId(peerId: PeerId | string): PeerId {
@@ -589,6 +634,7 @@ export class ConnectionController {
         this.context.removeDataChannel(
             remotePeerId
         );
+        this.routingTable?.removeNeighbor(remotePeerId.toString());
         this.pendingIceCandidates.delete(remotePeerId.toString());
         this.ignoredIceUfrags.delete(remotePeerId.toString());
 
@@ -610,6 +656,23 @@ export class ConnectionController {
      * Register events.
      */
     public register(): void {
+
+        this.eventBus.on("SMALL_WORLD_NEIGHBORS_SELECTED", (neighbors: SelectedNeighbor[]) => {
+            this.selectedRoutingNeighbors.clear();
+            for (const neighbor of neighbors) this.selectedRoutingNeighbors.set(neighbor.peerId, neighbor);
+            const router = this.ensureRouter();
+            if (!router) return;
+            this.routingTable?.clear();
+            for (const peerId of this.context.getOpenConnectedPeerIds()) {
+                void this.refreshRoutingNeighbor(PeerId.fromString(peerId));
+            }
+        });
+
+        this.eventBus.on("ROUTE_PACKET", (request: { targetCoordinate: number; packet: unknown; id?: string }) => {
+            const router = this.ensureRouter();
+            if (!router) throw new Error("Local identity coordinate is unavailable.");
+            router.routePacket(request.targetCoordinate, request.packet, request.id);
+        });
 
         this.eventBus.on(
 
@@ -693,6 +756,59 @@ export class ConnectionController {
 
         );
 
+    }
+
+    private ensureRouter(): SmallWorldRouter | undefined {
+        const identity = this.context.getIdentity();
+        const coordinate = this.context.getLocalCoordinate();
+        if (!identity || coordinate === undefined) return undefined;
+        const localPeerId = identity.getPeerId().toString();
+        if (this.routingPeerId !== localPeerId || this.routingCoordinate !== coordinate) {
+            this.routingTable = new SmallWorldRoutingTable(localPeerId);
+            this.router = new SmallWorldRouter(
+                localPeerId,
+                coordinate,
+                this.routingTable,
+                packet => this.eventBus.emit("ROUTED_PACKET_RECEIVED", packet)
+            );
+            this.routingPeerId = localPeerId;
+            this.routingCoordinate = coordinate;
+        }
+        return this.router;
+    }
+
+    private async refreshRoutingNeighbor(peerId: PeerId): Promise<void> {
+        let selection = this.selectedRoutingNeighbors.get(peerId.toString());
+        const channel = this.context.getDataChannel(peerId);
+        if (!channel?.isOpen()) {
+            this.routingTable?.removeNeighbor(peerId.toString());
+            return;
+        }
+        // A WebRTC link is bidirectional even when only one endpoint selected
+        // it as a neighbor. Keep the incoming endpoint as a long-range fallback
+        // so greedy routes can return through that direct link.
+        if (!selection) {
+            const peer = this.context.getOnlinePeers().find((candidate: any) => candidate?.peerId === peerId.toString());
+            if (typeof peer?.publicKey !== "string") return;
+            try {
+                const publicKey = PublicKey.fromBase64(peer.publicKey);
+                const verifiedId = await PeerId.fromPublicKey(publicKey.bytes);
+                if (!verifiedId.equals(peerId)) return;
+                selection = {
+                    peerId: peerId.toString(),
+                    coordinate: await NodeCoordinate.fromPublicKey(publicKey),
+                    range: "long"
+                };
+            } catch {
+                return;
+            }
+        }
+        const neighbor: SmallWorldNeighbor = {
+            ...selection,
+            send: (packet: RoutedPacket) => channel.send(JSON.stringify({ kind: "route", payload: packet }))
+        };
+        this.ensureRouter();
+        this.routingTable?.addNeighbor(neighbor);
     }
 
 }

@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { createHash } from "node:crypto";
 
 import { Peer } from "../models/Peer";
 import { BootstrapPacket } from "../models/BootstrapPacket";
@@ -47,11 +48,11 @@ export class RegisterHandler {
 
             peerId,
             username,
-            publicKey
+            publicKey,
+            coordinate
 
         } = packet.payload;
 
-        console.log(`RegisterHandler: received REGISTER from ${username} (${peerId})`);
         const peer = new Peer(
 
             peerId,
@@ -60,14 +61,14 @@ export class RegisterHandler {
 
             publicKey,
 
-            socket
+            socket,
+            coordinate
 
         );
 
         const success =
             this.peerManager.registerPeer(peer);
 
-        console.log(`RegisterHandler: registerPeer returned ${success} (peerCount=${this.peerManager.peerCount()})`);
         if (!success) {
 
             this.sendError(
@@ -84,7 +85,6 @@ export class RegisterHandler {
 
         this.sendPeerList(socket, peerId);
 
-        console.log(`RegisterHandler: sent PEER_LIST to ${username} (${peerId})`);
         this.broadcastPeerJoined(peer);
 
     }
@@ -128,6 +128,25 @@ export class RegisterHandler {
 
             return false;
 
+        }
+
+        if (candidate.coordinate !== undefined &&
+            (typeof candidate.coordinate !== "number" || !Number.isFinite(candidate.coordinate) || candidate.coordinate < 0 || candidate.coordinate > 1)) {
+            return false;
+        }
+
+        if (candidate.coordinate !== undefined) {
+            try {
+                const publicKeyBytes = Buffer.from(candidate.publicKey, "base64");
+                if (publicKeyBytes.length !== 32 || publicKeyBytes.toString("base64") !== candidate.publicKey) return false;
+                const digest = createHash("sha256").update(publicKeyBytes).digest();
+                const value = BigInt(`0x${digest.toString("hex")}`);
+                const denominator = (1n << 256n) - 1n;
+                const expectedCoordinate = Number(value) / Number(denominator);
+                if (Math.abs(expectedCoordinate - candidate.coordinate) > Number.EPSILON * 2) return false;
+            } catch {
+                return false;
+            }
         }
 
         if (candidate.peerId.length === 0) {
@@ -180,12 +199,12 @@ export class RegisterHandler {
 
                     username: peer.username,
 
-                    publicKey: peer.publicKey
+                    publicKey: peer.publicKey,
+
+                    coordinate: peer.coordinate
 
                 }));
 
-        console.log(`RegisterHandler: preparing PEER_LIST (${peers.length} peers)`);
-        console.log(peers);
         const packet =
 
             new BootstrapPacket(
@@ -211,7 +230,6 @@ export class RegisterHandler {
         peer: Peer
     ): void {
 
-        console.log(`RegisterHandler: broadcasting PEER_JOINED for ${peer.username} (${peer.peerId})`);
         const packet =
 
             new BootstrapPacket(
@@ -224,7 +242,8 @@ export class RegisterHandler {
 
                     username: peer.username,
 
-                    publicKey: peer.publicKey
+                    publicKey: peer.publicKey,
+                    coordinate: peer.coordinate
 
                 }
 

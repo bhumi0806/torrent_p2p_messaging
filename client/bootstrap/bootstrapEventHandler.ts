@@ -25,7 +25,10 @@ export class BootstrapEventHandler {
             (packet: BootstrapPacket<unknown>) => void,
 
         private readonly onError:
-            (packet: BootstrapPacket<unknown>) => void
+            (packet: BootstrapPacket<unknown>) => void,
+
+        private readonly onRoutingPacket:
+            (packet: BootstrapPacket<unknown>) => void = () => undefined
 
     ) {}
 
@@ -35,8 +38,6 @@ export class BootstrapEventHandler {
     public handle(
         raw: string
     ): void {
-        console.log("BootstrapEventHandler: received raw message:", raw);
-
     let packet: BootstrapPacket<unknown>;
 
     try {
@@ -83,6 +84,17 @@ if (!packet.type) {
             case MessageType.ERROR:
 
                 this.onError(packet);
+                break;
+
+            case MessageType.FIND_CLOSEST_NODES:
+
+            case MessageType.ANONYMOUS_SIGNAL:
+
+            case MessageType.DATA_STORE:
+
+            case MessageType.DATA_RETURN:
+
+                this.onRoutingPacket(packet);
                 break;
 
             default:

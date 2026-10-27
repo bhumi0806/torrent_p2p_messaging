@@ -17,6 +17,7 @@ import { MessageType } from "./types/MessageType";
 
 import { PeerLeftPayload } from "./protocol/PeerLeftPayload";
 import { RateLimiter } from "./rateLimit/RateLimiter";
+import { RoutingHandler } from "./handlers/RoutingHandler";
 
 export class BootstrapServer {
 
@@ -29,6 +30,8 @@ export class BootstrapServer {
     private readonly dispatcher: PacketDispatcher;
 
     private readonly rateLimiter: RateLimiter;
+
+    private readonly routingHandler: RoutingHandler;
 
     constructor() {
 
@@ -54,10 +57,13 @@ export class BootstrapServer {
                 this.packetSender
             );
 
+        this.routingHandler = new RoutingHandler(this.peerManager, this.packetSender);
+
         this.dispatcher =
             new PacketDispatcher(
                 registerHandler,
-                signalHandler
+                signalHandler,
+                this.routingHandler
             );
 
         this.rateLimiter = new RateLimiter();
@@ -65,7 +71,9 @@ export class BootstrapServer {
         this.server = new WebSocketServer({
 
             host: ServerConfig.HOST,
-            port: ServerConfig.PORT
+            port: ServerConfig.PORT,
+            maxPayload: ServerConfig.MAX_MESSAGE_SIZE,
+            perMessageDeflate: false
 
         });
 
@@ -76,9 +84,9 @@ export class BootstrapServer {
      */
     public start(): void {
 
-        console.log(
-            `Bootstrap Server listening on ${ServerConfig.HOST}:${ServerConfig.PORT}`
-        );
+        this.server.on("listening", () => {
+            console.log(`[Server] Started ${ServerConfig.HOST}:${ServerConfig.PORT}`);
+        });
 
         this.server.on(
             "connection",
@@ -92,6 +100,7 @@ export class BootstrapServer {
      */
     public stop(): void {
 
+        this.routingHandler.dispose();
         this.server.close();
 
     }
@@ -144,12 +153,12 @@ export class BootstrapServer {
 
             const scope = this.getScope(packet.type);
             const remoteAddress = this.getRemoteAddress(socket);
-            const accountId = this.getAccountId(packet);
 
             if (!this.rateLimiter.allow({
                 scope,
                 remoteAddress,
-                accountId
+                // Rate limit by network source without retaining usernames or IDs.
+                accountId: undefined
             })) {
                 this.packetSender.sendError(
                     socket,
@@ -212,20 +221,6 @@ export class BootstrapServer {
     private getRemoteAddress(socket: WebSocket): string | undefined {
         const remoteAddress = (socket as WebSocket & { _socket?: { remoteAddress?: string } })._socket?.remoteAddress;
         return remoteAddress;
-    }
-
-    private getAccountId(packet: BootstrapPacket<unknown>): string | undefined {
-        if (!packet || typeof packet !== "object") {
-            return undefined;
-        }
-
-        const payload = packet.payload as Record<string, unknown> | undefined;
-        if (!payload || typeof payload !== "object") {
-            return undefined;
-        }
-
-        const candidate = payload.username ?? payload.account ?? payload.user ?? payload.email;
-        return typeof candidate === "string" ? candidate : undefined;
     }
 
     /**

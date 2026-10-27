@@ -8,6 +8,12 @@ import { BootstrapPacket } from "./protocol/bootstrapPacket";
 
 import { MessageType } from "./types/MessageType";
 import { ConnectionState } from "./types/ConnectionState";
+import {
+    AnonymousSignalKind,
+    DataReturnPayload,
+    DataStorePayload,
+    FindClosestNodesRequest
+} from "./protocol/RoutingPayload";
 
 export class BootstrapClient {
 
@@ -17,6 +23,7 @@ export class BootstrapClient {
 
     private readonly eventHandler: BootstrapEventHandler;
     private identity?: PrivateIdentity;
+    private coordinate?: number;
     private connectionAttempt?: Promise<void>;
     constructor(
         eventHandler: BootstrapEventHandler
@@ -89,6 +96,13 @@ export class BootstrapClient {
 
 }
 
+    public setCoordinate(coordinate: number): void {
+        if (!Number.isFinite(coordinate) || coordinate < 0 || coordinate > 1) {
+            throw new Error("Bootstrap coordinate must be between 0 and 1.");
+        }
+        this.coordinate = coordinate;
+    }
+
     /**
      * Get the bootstrap state.
      */
@@ -123,6 +137,41 @@ export class BootstrapClient {
 
         return this.state.getPeerList();
 
+    }
+
+    public findClosestNodes(request: FindClosestNodesRequest): void {
+        this.connection.send(new BootstrapPacket(MessageType.FIND_CLOSEST_NODES, request));
+    }
+
+    public sendAnonymousSignal(
+        targetCoordinate: number,
+        signalType: AnonymousSignalKind,
+        signal: unknown,
+        requestId?: string
+    ): void {
+        this.connection.send(new BootstrapPacket(MessageType.ANONYMOUS_SIGNAL, {
+            targetCoordinate, signalType, signal, requestId
+        }));
+    }
+
+    public sendAnonymousSignalReply(
+        returnToken: string,
+        signalType: AnonymousSignalKind,
+        signal: unknown,
+        requestId?: string
+    ): void {
+        this.connection.send(new BootstrapPacket(MessageType.ANONYMOUS_SIGNAL, {
+            returnToken, signalType, signal, requestId
+        }));
+    }
+
+    public storeData(payload: DataStorePayload): void {
+        this.connection.send(new BootstrapPacket(MessageType.DATA_STORE, payload));
+    }
+
+    public requestData(key: string): void {
+        const payload: DataReturnPayload = { key };
+        this.connection.send(new BootstrapPacket(MessageType.DATA_RETURN, payload));
     }
 
     /**
@@ -163,16 +212,10 @@ export class BootstrapClient {
             {
                 peerId: identity.peerId.toString(),
                 username: identity.username.toString(),
-                publicKey: publicKeyString
+                publicKey: publicKeyString,
+                coordinate: this.coordinate
             }
         );
-
-        // Debug: log outgoing REGISTER packet
-        try {
-            console.log("BootstrapClient: sending REGISTER", JSON.stringify(packet));
-        } catch (e) {
-            console.log("BootstrapClient: sending REGISTER (unable to stringify packet)", packet);
-        }
 
         this.connection.send(packet);
 
