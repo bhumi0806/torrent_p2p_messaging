@@ -129,6 +129,18 @@ async function main(): Promise<void> {
         });
         await clientB.waitFor(MessageType.PEER_LIST);
 
+        const clientC = await openClient("Client C");
+        clients.push(clientC);
+        const publicKeyC = Buffer.alloc(32, 0x43);
+        const coordinateC = coordinateFor(publicKeyC);
+        clientC.send(MessageType.REGISTER, {
+            peerId: "mock-peer-C-0003",
+            username: "anonymous-C",
+            publicKey: publicKeyC.toString("base64"),
+            coordinate: coordinateC
+        });
+        await clientC.waitFor(MessageType.PEER_LIST);
+
         clientB.send(MessageType.FIND_CLOSEST_NODES, {
             targetCoordinate: coordinateA,
             limit: 3,
@@ -179,9 +191,23 @@ async function main(): Promise<void> {
         console.log("[Transport] WebRTC Handshake Wrapped Successfully");
 
         const ports = clients.map(client => (client.socket as WebSocket & { _socket?: { localPort?: number } })._socket?.localPort);
-        if (!ports[0] || !ports[1] || ports[0] === ports[1]) {
+        if (new Set(ports).size !== 3 || ports.some(port => !port)) {
             throw new Error("Clients unexpectedly share a local source port.");
         }
+
+        const peerLeftAtB = clientB.waitFor(MessageType.PEER_LEFT, payload => payload?.peerId === "mock-peer-A-0001");
+        const peerLeftAtC = clientC.waitFor(MessageType.PEER_LEFT, payload => payload?.peerId === "mock-peer-A-0001");
+        clientA.socket.close();
+        await Promise.all([peerLeftAtB, peerLeftAtC]);
+        console.log("[Presence] Client A offline; B and C remained connected");
+
+        const peerCLeftAtB = clientB.waitFor(MessageType.PEER_LEFT, payload => payload?.peerId === "mock-peer-C-0003");
+        clientC.socket.close();
+        await peerCLeftAtB;
+        if (clientB.socket.readyState !== WebSocket.OPEN) {
+            throw new Error("Client B disconnected when Client C went offline.");
+        }
+        console.log("[Presence] Client C offline; Client B remained connected");
     } finally {
         for (const client of clients) client.socket.close();
         if (serverProcess.exitCode === null) {

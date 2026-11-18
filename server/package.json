@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "tsx watch main.ts",
     "test:transport": "tsx test-transport-mesh.ts",
+    "test:xor-routing": "tsx ../client/peerDiscovery/simulation/xorRoutingTest.ts",
+    "test:routed-chat": "tsx ../client/messaging/simulation/routedChatSimulation.ts",
+    "test:browser-server": "tsx test-browser-services.ts",
     "build": "tsc",
     "start": "node dist/main.js"
   },
