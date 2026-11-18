@@ -1,12 +1,6 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-    server: {
-        proxy: {
-            "/bootstrap": {
-                target: "ws://localhost:8080",
-                ws: true
-            }
-        }
-    }
+    // Bootstrap uses its own explicit WebSocket URL. Proxying the `/bootstrap`
+    // path captures Vite's `/bootstrap/*.ts` module requests and returns 426.
 });

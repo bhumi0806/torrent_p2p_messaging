@@ -11,17 +11,17 @@ export class FreenetEngine {
             .join("");
     }
 
-    /**
-     * Evaluates which peer ID is mathematically closest to the target content key
-     */
+    /** Select the peer with the smallest XOR distance from a 256-bit content key. */
     public static findClosestPeer(contentKey: string, connectedPeers: string[]): string | null {
         if (!connectedPeers || connectedPeers.length === 0) return null;
 
+        const target = this.parseKey(contentKey);
+
         let closest = connectedPeers[0];
-        let minDistance = this.calculateDistance(contentKey, closest);
+        let minDistance = target ^ this.parseKey(closest);
 
         for (let i = 1; i < connectedPeers.length; i++) {
-            const distance = this.calculateDistance(contentKey, connectedPeers[i]);
+            const distance = target ^ this.parseKey(connectedPeers[i]);
             if (distance < minDistance) {
                 minDistance = distance;
                 closest = connectedPeers[i];
@@ -30,17 +30,15 @@ export class FreenetEngine {
         return closest;
     }
 
-    /**
-     * Computes absolute mathematical difference between two hex strings
-     */
-    private static calculateDistance(keyA: string, keyB: string): bigint {
-        try {
-            // Check absolute distance difference between the first 12 characters of hex hashes
-            const valA = BigInt("0x" + keyA.substring(0, 12));
-            const valB = BigInt("0x" + keyB.substring(0, 12));
-            return valA > valB ? valA - valB : valB - valA;
-        } catch {
-            return BigInt(0);
+    /** Calculate full-width XOR distance between 256-bit hexadecimal keys. */
+    public static calculateXorDistance(keyA: string, keyB: string): bigint {
+        return this.parseKey(keyA) ^ this.parseKey(keyB);
+    }
+
+    private static parseKey(value: string): bigint {
+        if (!/^[a-f0-9]{64}$/i.test(value)) {
+            throw new Error("Freenet keys and peer IDs must be 256-bit hexadecimal strings.");
         }
+        return BigInt(`0x${value}`);
     }
 }

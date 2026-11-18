@@ -11,6 +11,7 @@ import { MessageSender } from "./MessageSender";
 import { MessageReceiver } from "./MessageReceiver";
 import { ChatThreadEngine, ChatThreadMember } from "./ChatThreadEngine";
 import { ApplicationContext } from "../integration/ApplicationContext";
+import { PublicKey } from "../identity/valueObjects/PublicKey";
 
 export class MessagingManager {
 
@@ -22,11 +23,11 @@ export class MessagingManager {
 
     constructor(
 
-        encryptionManager: EncryptionManager,
+        private readonly encryptionManager: EncryptionManager,
 
         webRTCManager: WebRTCManager,
 
-        context:ApplicationContext
+        private readonly context: ApplicationContext
 
     ) {
 
@@ -71,6 +72,25 @@ export class MessagingManager {
 
         );
 
+    }
+
+    /** Derive the existing end-to-end pairwise key from a verified remote identity record. */
+    public async ensureSessionKey(peerId: PeerId, encodedPublicKey: string): Promise<void> {
+        if (this.encryptionManager.hasSessionKey(peerId)) return;
+        const identity = this.context.getIdentity();
+        if (!identity) throw new Error("Local identity is not initialized.");
+        const publicKey = PublicKey.fromBase64(encodedPublicKey);
+        const derivedPeerId = await PeerId.fromPublicKey(publicKey.bytes);
+        if (!derivedPeerId.equals(peerId)) throw new Error("Remote public key does not match peer ID.");
+        await this.encryptionManager.deriveAndStoreSessionKey(
+            identity.getPrivateIdentity(),
+            peerId,
+            publicKey
+        );
+    }
+
+    public createOutboundMessage(receiverId: PeerId, plaintext: string): Message {
+        return this.sender.createMessage(receiverId, plaintext);
     }
 
     /**

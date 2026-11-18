@@ -35,6 +35,46 @@ export class MessageSender {
 
     ): Promise<void> {
 
+        const message = this.createMessage(receiverId, plaintext);
+
+        const serialized =
+            MessageSerializer.serialize(
+                message
+            );
+
+        const dataChannel =
+
+            this.context.getDataChannel(
+
+                receiverId
+
+            );
+
+        if (!dataChannel) {
+            throw new Error(
+                "Chat DataChannel is not available yet."
+            );
+        }
+
+        await dataChannel.waitUntilOpen();
+
+        dataChannel.send(
+            JSON.stringify({
+                kind: "chat",
+                payload: serialized
+            })
+        );
+
+        message.getMetadata().setDeliveryStatus(DeliveryStatus.SENT);
+
+    }
+
+    /** Create the same encrypted, serialized chat model for direct or routed transport. */
+    public createMessage(
+        receiverId: PeerId,
+        plaintext: string
+    ): Message {
+
         const encryptedMessage =
 
             this.encryptionManager.encrypt(
@@ -72,43 +112,7 @@ export class MessageSender {
                 encryptedMessage
 
             );
-
-        const serialized =
-
-            MessageSerializer.serialize(
-
-                message
-
-            );
-
-        const dataChannel =
-
-            this.context.getDataChannel(
-
-                receiverId
-
-            );
-
-        if (!dataChannel) {
-            throw new Error(
-                "Chat DataChannel is not available yet."
-            );
-        }
-
-        await dataChannel.waitUntilOpen();
-
-        dataChannel.send(
-            JSON.stringify({
-                kind: "chat",
-                payload: serialized
-            })
-        );
-
-        metadata.setDeliveryStatus(
-
-            DeliveryStatus.SENT
-
-        );
+        return message;
 
     }
 

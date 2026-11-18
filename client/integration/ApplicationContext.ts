@@ -16,6 +16,9 @@ export class ApplicationContext {
     private readonly onlinePeers =
         new Map<string, any>();
 
+    private readonly learnedPeers =
+        new Map<string, any>();
+
     private readonly peerConnections =
         new Map<string, PeerConnection>();
 
@@ -105,11 +108,10 @@ export class ApplicationContext {
     public getOnlinePeers():
         any[] {
 
-        return Array.from(
-
-            this.onlinePeers.values()
-
-        );
+        return Array.from(new Map([
+            ...this.learnedPeers,
+            ...this.onlinePeers
+        ]).values());
 
     }
 
@@ -134,6 +136,14 @@ export class ApplicationContext {
 
     }
 
+    /** Merge peer records learned over the overlay without discarding bootstrap records. */
+    public mergePeers(peers: any[]): void {
+        for (const peer of peers) {
+            if (!peer || typeof peer.peerId !== "string") continue;
+            this.learnedPeers.set(peer.peerId, peer);
+        }
+    }
+
     /**
      * Remove peer.
      */
@@ -151,6 +161,7 @@ export class ApplicationContext {
             id
 
         );
+        this.learnedPeers.delete(id);
 
     }
 
@@ -350,6 +361,8 @@ export class ApplicationContext {
         this.localCoordinate = undefined;
 
         this.onlinePeers.clear();
+
+        this.learnedPeers.clear();
 
         this.peerConnections.clear();
 

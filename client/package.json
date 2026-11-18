@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:webrtc": "playwright test -c playwright.config.ts"
   },
   "dependencies": {
     "libsodium-wrappers": "^0.8.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"
   }

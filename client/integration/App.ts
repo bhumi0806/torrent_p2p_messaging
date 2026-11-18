@@ -197,7 +197,9 @@ export class App {
 
                 this.eventBus,
 
-                this.context
+                this.context,
+
+                this.connectionController.sendChatMessage.bind(this.connectionController)
 
             );
 
@@ -286,7 +288,7 @@ export class App {
         const offer = payload?.payload;
 
         if (!senderId || !offer) {
-            console.warn("Invalid OFFER payload:", payload);
+            console.warn("Invalid OFFER signaling packet.");
             return;
         }
 
@@ -304,7 +306,7 @@ export class App {
         const answer = payload?.payload;
 
         if (!senderId || !answer) {
-            console.warn("Invalid ANSWER payload:", payload);
+            console.warn("Invalid ANSWER signaling packet.");
             return;
         }
 
@@ -322,7 +324,7 @@ export class App {
         const candidate = payload?.payload;
 
         if (!senderId || !candidate) {
-            console.warn("Invalid ICE_CANDIDATE payload:", payload);
+            console.warn("Invalid ICE_CANDIDATE signaling packet.");
             return;
         }
 
@@ -429,12 +431,12 @@ export class App {
 
     const selectedPeerId = userList.value;
 
-    console.log("[CONNECT] Selected peer ID:", selectedPeerId);
+    console.log("[CONNECT] Selected peer:", selectedPeerId.slice(0, 12));
     console.log(
         "[CONNECT] Available peers:",
         Array.from(userList.options).map(option => ({
             label: option.textContent,
-            peerId: option.value
+            peerId: option.value.slice(0, 12)
         }))
     );
 
@@ -446,10 +448,7 @@ export class App {
 
     try {
         logMessage("[CONNECT] Emitting CONNECT_TO_PEER");
-        await this.eventBus.emit("CONNECT_TO_PEER", {
-            peerId: selectedPeerId,
-            force: true
-        });
+        await this.eventBus.emit("CONNECT_TO_PEER", selectedPeerId);
         logMessage("[CONNECT] Event emitted successfully");
     } catch (error) {
         console.error("[CONNECT] Connection failed:", error);
@@ -633,7 +632,31 @@ export class App {
             row.textContent = `${label}: ${content}`;
             chatWindow.appendChild(row);
             chatWindow.scrollTop = chatWindow.scrollHeight;
+            return row;
         };
+
+        const outgoingRows = new Map<string, HTMLDivElement>();
+        this.eventBus.on("MESSAGE_SEND_PENDING", (payload: any) => {
+            const row = appendMessage("Me (routing)", payload.content);
+            row.dataset.messageId = payload.messageId;
+            outgoingRows.set(payload.messageId, row);
+        });
+
+        this.eventBus.on("MESSAGE_DELIVERY_PROGRESS", (response: any) => {
+            const row = outgoingRows.get(response.messageId);
+            if (row) row.textContent = `Me (${response.status === "relay_received" ? "relay received" : "forwarded"}): ${row.textContent.split(": ").slice(1).join(": ")}`;
+        });
+
+        this.eventBus.on("MESSAGE_DELIVERY_STATUS", (payload: any) => {
+            const row = outgoingRows.get(payload.messageId);
+            if (!row) return;
+            const label = payload.status === "delivered" || payload.status === "duplicate"
+                ? "Me (delivered)"
+                : `Me (${payload.status})`;
+            const content = row.textContent?.replace(/^Me \([^)]*\): /, "") ?? "";
+            row.textContent = `${label}: ${content}${payload.reason ? ` [${payload.reason}]` : ""}`;
+            outgoingRows.delete(payload.messageId);
+        });
 
         const renderConnectedPeers = () => {
             if (!connectedPeers) {
@@ -664,11 +687,11 @@ export class App {
         };
 
         sendBtn.addEventListener("click", async () => {
-            const selectedPeerId = this.getActivePeerId();
+            const selectedPeerId = userList?.value || this.getActivePeerId();
             const content = messageInput.value.trim();
 
             if (!selectedPeerId) {
-                alert("Please select a connected peer first");
+                alert("Please select a known peer first");
                 return;
             }
 
@@ -681,7 +704,6 @@ export class App {
                     receiverId: selectedPeerId,
                     content
                 });
-                appendMessage("Me", content);
                 messageInput.value = "";
             } catch (error) {
                 console.error("Send failed:", error);
@@ -886,6 +908,8 @@ export class App {
     public async shutdown(): Promise<void> {
 
         await this.bootstrapController.disconnect();
+
+        this.connectionController.dispose();
 
         this.heartbeatController.stop();
 

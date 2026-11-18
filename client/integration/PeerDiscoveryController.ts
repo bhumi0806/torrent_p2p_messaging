@@ -82,7 +82,11 @@ export class PeerDiscoveryController {
         }
         this.eventBus.emit("SMALL_WORLD_NEIGHBORS_SELECTED", selectedNeighbors);
         for (const neighbor of selectedNeighbors) {
-            this.eventBus.emit("CONNECT_TO_PEER", PeerId.fromString(neighbor.peerId));
+            // Both endpoints compute the same neighbor relation. Let the lower
+            // peer ID initiate so discovery does not create simultaneous offers.
+            if (localPeerId < neighbor.peerId) {
+                this.eventBus.emit("CONNECT_TO_PEER", PeerId.fromString(neighbor.peerId));
+            }
         }
 
         this.eventBus.emit(

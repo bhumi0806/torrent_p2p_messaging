@@ -3,6 +3,9 @@ import { PeerId } from "../identity/valueObjects/PeerID";
 import { MessagingManager } from "../messaging/MessagingManager";
 
 import { Message } from "../messaging/models/Message";
+import { MessageSerializer } from "../messaging/MessageSerializer";
+import { DeliveryStatus } from "../messaging/types/DeliveryStatus";
+import { RouteMessageResponse } from "../messaging/RouteMessageProtocol";
 
 import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
@@ -18,7 +21,15 @@ export class ChatController {
 
         private readonly eventBus: EventBus,
 
-        private readonly context: ApplicationContext
+        private readonly context: ApplicationContext,
+
+        private readonly sendRoutedMessage: (
+            destinationPeerId: string,
+            messageId: string,
+            encryptedPayload: string,
+            onProgress?: (response: RouteMessageResponse) => void,
+            originHopLimit?: number
+        ) => Promise<RouteMessageResponse>
 
     ) {}
 
@@ -29,7 +40,9 @@ export class ChatController {
 
         receiverId: PeerId | string,
 
-        content: string
+        content: string,
+
+        originHopLimit?: number
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(receiverId);
@@ -48,35 +61,60 @@ export class ChatController {
 
         }
 
-        const connection =
-
-            this.context.getConnection(
-
-                remotePeerId
-
-            );
-
-        if (!connection) {
-
-            throw new Error(
-
-                "Peer is not connected."
-
-            );
-
+        const remotePeer = this.context.getOnlinePeers().find(
+            (peer: any) => peer?.peerId === remotePeerId.toString()
+        );
+        if (typeof remotePeer?.publicKey !== "string") {
+            throw new Error("Recipient identity record is unavailable.");
         }
 
-        // Freenet Integration: The content string arriving here from App.ts 
-        // is already wrapped into a stringified Freenet envelope object.
-        await this.messagingManager.send(
-
-            connection,
-
-            remotePeerId,
-
+        await this.messagingManager.ensureSessionKey(remotePeerId, remotePeer.publicKey);
+        const message = this.messagingManager.createOutboundMessage(remotePeerId, content);
+        const messageId = message.getMetadata().getMessageId();
+        const encryptedPayload = MessageSerializer.serialize(message);
+        this.context.addMessage(remotePeerId, message);
+        await this.eventBus.emit("MESSAGE_SEND_PENDING", {
+            messageId,
+            receiverId: remotePeerId,
             content
+        });
 
-        );
+        let outcome: RouteMessageResponse | undefined;
+        try {
+            outcome = await this.sendRoutedMessage(
+                remotePeerId.toString(),
+                messageId,
+                encryptedPayload,
+                progress => {
+                    if (progress.status === "relay_received" || progress.status === "relay_forwarded") {
+                        message.getMetadata().setDeliveryStatus(DeliveryStatus.SENT);
+                        void this.eventBus.emit("MESSAGE_DELIVERY_PROGRESS", progress);
+                    }
+                },
+                originHopLimit
+            );
+            const accepted = outcome.status === "delivered" ||
+                (outcome.status === "duplicate" && outcome.responderPeerId === remotePeerId.toString());
+            message.getMetadata().setDeliveryStatus(accepted ? DeliveryStatus.DELIVERED : DeliveryStatus.FAILED);
+            await this.eventBus.emit("MESSAGE_DELIVERY_STATUS", {
+                messageId,
+                receiverId: remotePeerId,
+                status: outcome.status,
+                reason: outcome.reason
+            });
+            if (!accepted) throw new Error(`Message ${outcome.status}: ${outcome.reason}`);
+        } catch (error) {
+            if (!outcome) {
+                message.getMetadata().setDeliveryStatus(DeliveryStatus.FAILED);
+                await this.eventBus.emit("MESSAGE_DELIVERY_STATUS", {
+                    messageId,
+                    receiverId: remotePeerId,
+                    status: "unreachable",
+                    reason: error instanceof Error ? error.message : String(error)
+                });
+            }
+            throw error;
+        }
 
     }
 
@@ -87,7 +125,9 @@ export class ChatController {
 
         senderId: PeerId | string,
 
-        encryptedMessage: string
+        encryptedMessage: string,
+
+        transportPeerId: PeerId | string = senderId
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(senderId);
@@ -142,7 +182,10 @@ export class ChatController {
             {
                 message,
                 plaintext,
-                senderId: remotePeerId
+                senderId: remotePeerId,
+                transportPeerId: typeof transportPeerId === "string"
+                    ? PeerId.fromString(transportPeerId)
+                    : transportPeerId
             }
 
         );
@@ -230,13 +273,17 @@ export class ChatController {
 
                 encryptedMessage: string;
 
+                transportPeerId?: PeerId | string;
+
             }) => {
 
                 await this.receiveMessage(
 
                     payload.senderId,
 
-                    payload.encryptedMessage
+                    payload.encryptedMessage,
+
+                    payload.transportPeerId ?? payload.senderId
 
                 );
 

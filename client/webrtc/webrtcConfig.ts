@@ -10,15 +10,6 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
             "stun:stun1.l.google.com:19302",
             "stun:stun2.l.google.com:19302"
         ]
-    },
-    {
-        urls: [
-            "turn:openrelay.metered.ca:80",
-            "turn:openrelay.metered.ca:443",
-            "turn:openrelay.metered.ca:5349"
-        ],
-        username: "openrelayproject",
-        credential: "openrelayproject"
     }
 ];
 
@@ -74,8 +65,7 @@ export function resolveWebRTCConfiguration(): RTCConfiguration {
     }).env;
 
     const iceServers =
-        parseIceServers(params.get("iceServers"))
-        ?? runtimeWindow.__ICE_SERVERS__
+        runtimeWindow.__ICE_SERVERS__
         ?? parseIceServers(env?.VITE_ICE_SERVERS_JSON)
         ?? DEFAULT_ICE_SERVERS;
 

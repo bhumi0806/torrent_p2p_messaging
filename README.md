@@ -123,7 +123,9 @@ VITE_ICE_SERVERS_JSON='[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn
 VITE_ICE_TRANSPORT_POLICY=all
 ```
 
-For a strict TURN test, temporarily set `VITE_ICE_TRANSPORT_POLICY=relay`. If two devices on different networks can chat with `relay`, the TURN path is healthy. Change it back to `all` for normal peer-to-peer operation.
+Vite environment values are compiled into browser-visible JavaScript. Do not set permanent TURN credentials there; use provider-issued short-lived credentials. The client defaults to STUN only. For a strict TURN test, temporarily set `VITE_ICE_TRANSPORT_POLICY=relay`. If two devices on different networks can chat with `relay`, the selected candidate pair should show `relay`; change it back to `all` for normal operation.
+
+See [Cross-device WebRTC connectivity test](docs/cross-device-webrtc.md) for a repeatable physical-device procedure and diagnostic fields.
 
 ## Project documents
 

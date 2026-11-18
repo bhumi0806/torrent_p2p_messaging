@@ -7,6 +7,8 @@
 - Browser clients exchange WebRTC offers, answers, and ICE candidates through the bootstrap server.
 - Once WebRTC connects, chat and file payloads move over encrypted data channels.
 - Invite links now provide peer identity metadata and public-key fingerprints, but they do not replace signaling yet.
+- Open WebRTC data channels exchange up to 64 peer identity records. Recipients recompute each peer ID from its public key before merging the record into their local peer directory and using it for neighbor selection.
+- `FreenetEngine.findClosestPeer` now uses full 256-bit XOR distance, which is the expected key distance for DHT-style lookup. It remains a utility and is not yet on the messaging or discovery path.
 
 ## Target Architecture
 
@@ -72,6 +74,13 @@
 - Browser tabs sleep, mobile browsers suspend background work, and users close pages, so availability is weaker than a native P2P node.
 - WebRTC signaling relay through peers increases complexity and needs abuse prevention.
 
+## Centralized Responsibilities Still To Replace
+
+- **Presence:** the bootstrap server is the only authority for who is currently online. Overlay records are hints and may be stale; the data channel must confirm reachability.
+- **Initial rendezvous and signaling:** new peers still require the server to deliver OFFER, ANSWER, and ICE_CANDIDATE. A browser cannot form a WebRTC channel with an unknown peer without exchanging signaling data through some reachable path.
+- **Initial directory:** clients get their first set of peer records from the server. Peer exchange only expands the directory after an overlay link exists.
+- **Lookup:** `FreenetEngine` can rank 256-bit keys, but it does not query or route through the overlay. `SmallWorldRouter` routes by a public-key-derived unit-ring coordinate and is not yet a complete DHT lookup protocol.
+
 ## Problems Discovered
 
 - The term "DHT" can imply BitTorrent-style UDP networking, but this project is browser-first and cannot use that transport directly.
@@ -88,3 +97,9 @@
 - Add optional friend-to-friend mode where only verified invite peers are exchanged.
 - Add safety controls for relay behavior, including rate limits, hop limits, and manual trust settings.
 - Investigate a future native helper or desktop wrapper if true UDP DHT participation becomes a requirement.
+
+## Current Verification
+
+- The client production build and repository TypeScript check pass.
+- The server transport integration check uses three independent WebSocket clients, verifies registration and offer/answer relay, then disconnects peers individually and verifies the remaining clients stay connected and receive peer-left events.
+- This does not exercise real browser WebRTC channels or cross-device NAT traversal. Those checks still require separate browser/device instances and a reachable ICE/TURN setup.

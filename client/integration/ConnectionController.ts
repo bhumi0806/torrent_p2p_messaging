@@ -13,9 +13,27 @@ import { ApplicationContext } from "./ApplicationContext";
 import { EventBus } from "./EventBus";
 import { RoutedPacket, SmallWorldNeighbor, SmallWorldRoutingTable } from "../webrtc/SmallWorldRoutingTable";
 import { SmallWorldRouter } from "../webrtc/SmallWorldRouter";
-import { SelectedNeighbor } from "../peerDiscovery/SmallWorldTopology";
+import { SelectedNeighbor, SmallWorldTopology } from "../peerDiscovery/SmallWorldTopology";
 import { NodeCoordinate } from "../peerDiscovery/NodeCoordinate";
 import { PassiveChunkCache } from "../messaging/PassiveChunkCache";
+import { XorRouter } from "../peerDiscovery/XorRouter";
+import { FindNodeRequest, FindNodeResponse } from "../peerDiscovery/XorRoutingProtocol";
+import { RouteMessageHandler } from "../messaging/RouteMessageHandler";
+import { RouteMessage, RouteMessageResponse } from "../messaging/RouteMessageProtocol";
+import { WebRTCDiagnostics, WebRTCDiagnosticSnapshot } from "../webrtc/WebRTCDiagnostics";
+import { createRandomId } from "../utils/createRandomId";
+
+interface ConnectionAttempt {
+    readonly attemptId: string;
+    readonly initiatorPeerId: string;
+    readonly targetPeerId: string;
+}
+
+interface PendingOutgoingSetup {
+    readonly connection: PeerConnection;
+    cancelled: boolean;
+    promise: Promise<void>;
+}
 
 export class ConnectionController {
     private routingTable?: SmallWorldRoutingTable;
@@ -26,8 +44,12 @@ export class ConnectionController {
     private readonly pendingIceCandidates =
         new Map<string, RTCIceCandidateInit[]>();
 
-    private readonly ignoredIceUfrags =
-        new Map<string, Set<string>>();
+    private xorRouter?: XorRouter;
+    private xorRoutingPeerId?: string;
+    private readonly routeMessageHandler: RouteMessageHandler;
+    private readonly webRTCDiagnostics = new WebRTCDiagnostics();
+    private readonly connectionAttempts = new WeakMap<RTCPeerConnection, ConnectionAttempt>();
+    private readonly pendingOutgoingSetups = new Map<string, PendingOutgoingSetup>();
 
     constructor(
 
@@ -41,14 +63,30 @@ export class ConnectionController {
 
         private readonly context: ApplicationContext
 
-    ) {}
+    ) {
+        this.routeMessageHandler = new RouteMessageHandler(
+            this.context,
+            this.encryptionManager,
+            {
+                selectNextHop: (destinationPeerId, excludedPeerIds) =>
+                    this.ensureXorRouter()?.selectNextHop(destinationPeerId, excludedPeerIds),
+                sendToPeer: (peerId, payload) => this.sendRouteMessagePacket(peerId, payload),
+                deliver: async (originPeerId, transportPeerId, encryptedPayload) => {
+                    await this.eventBus.emit("RECEIVE_MESSAGE", {
+                        senderId: PeerId.fromString(originPeerId),
+                        transportPeerId: PeerId.fromString(transportPeerId),
+                        encryptedMessage: encryptedPayload
+                    });
+                }
+            }
+        );
+    }
 
     /**
      * Connect to a peer.
      */
     public async connect(
-        peerId: PeerId | string,
-        options: { force?: boolean } = {}
+        peerId: PeerId | string
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(peerId);
@@ -57,7 +95,9 @@ export class ConnectionController {
         if (existingConnection) {
             const channel = this.context.getDataChannel(remotePeerId);
             const connectionState = existingConnection.getConnection().connectionState;
-            if (channel?.isOpen()) {
+            const channelState = channel?.getChannel().readyState;
+            const terminalConnection = connectionState === "failed" || connectionState === "closed";
+            if (channel?.isOpen() && !terminalConnection) {
                 this.eventBus.emit(
                     "PEER_CONNECTED",
                     remotePeerId
@@ -65,12 +105,13 @@ export class ConnectionController {
                 return;
             }
 
-            const isDead = connectionState === "failed"
-                || connectionState === "closed"
-                || connectionState === "disconnected"
-                || channel?.getChannel().readyState === "closed";
+            const isDead = terminalConnection
+                || channelState === "closed"
+                || (connectionState === "disconnected" && channelState !== "open" && channelState !== "connecting");
 
-            if (!isDead && !options.force) {
+            // A repeated Connect request must not replace an in-flight offer.
+            // ICE's disconnected state can recover without creating a new peer connection.
+            if (!isDead) {
                 return;
             }
 
@@ -90,48 +131,57 @@ export class ConnectionController {
             connection
 
         );
-
+        const attempt = this.startConnectionAttempt(connection, remotePeerId, "outgoing");
+        this.logSignalingStage(attempt, "OFFER", "created");
+        const setup: PendingOutgoingSetup = {
+            connection,
+            cancelled: false,
+            promise: Promise.resolve()
+        };
+        const key = remotePeerId.toString();
+        this.pendingOutgoingSetups.set(key, setup);
+        const runSetup = this.createOutgoingOffer(remotePeerId, connection, attempt, setup);
+        setup.promise = runSetup;
         try {
-            this.registerConnectionFailureHandler(
-                connection,
-                remotePeerId
-            );
-
-            await this.prepareSessionKey(remotePeerId);
-
-            this.registerIceCandidateRelay(
-                connection,
-                remotePeerId
-            );
-
-            const dataChannel =
-                this.webRTCManager.createDataChannel(
-                    connection,
-                    "chat"
-                );
-
-            this.registerDataChannel(
-                remotePeerId,
-                dataChannel
-            );
-
-            const offer =
-                await this.webRTCManager.createOffer(
-                    connection
-                );
-
-            await this.bootstrapClient.sendOffer(
-
-                remotePeerId,
-
-                offer
-
-            );
+            await runSetup;
         } catch (error) {
+            this.logSignalingStage(attempt, "OFFER", "failed", { errorName: getErrorName(error) });
             this.discardConnection(remotePeerId, connection);
             throw error;
+        } finally {
+            if (this.pendingOutgoingSetups.get(key) === setup) this.pendingOutgoingSetups.delete(key);
         }
 
+    }
+
+    private async createOutgoingOffer(
+        peerId: PeerId,
+        connection: PeerConnection,
+        attempt: ConnectionAttempt,
+        setup: PendingOutgoingSetup
+    ): Promise<void> {
+        this.registerConnectionFailureHandler(connection, peerId);
+        await this.prepareSessionKey(peerId);
+        this.logSignalingStage(attempt, "IDENTITY", "peer-public-key-verified");
+        if (setup.cancelled || this.context.getConnection(peerId) !== connection) {
+            this.logSignalingStage(attempt, "OFFER", "cancelled-for-incoming-offer");
+            return;
+        }
+
+        this.registerIceCandidateRelay(connection, peerId);
+        const dataChannel = this.webRTCManager.createDataChannel(connection, "chat");
+        this.registerDataChannel(peerId, dataChannel);
+        const offer = await this.webRTCManager.createOffer(connection);
+        this.logSignalingStage(attempt, "OFFER", "local-description-set");
+        if (setup.cancelled || this.context.getConnection(peerId) !== connection) {
+            this.logSignalingStage(attempt, "OFFER", "cancelled-for-incoming-offer");
+            return;
+        }
+
+        await this.bootstrapClient.sendOffer(peerId, offer);
+        // This means the open bootstrap socket accepted the write; the server
+        // does not currently acknowledge delivery to the target peer.
+        this.logSignalingStage(attempt, "OFFER", "written-to-bootstrap-socket");
     }
 
     /**
@@ -150,29 +200,52 @@ export class ConnectionController {
         const connection =
             existingConnection
             ?? this.webRTCManager.createConnection(remotePeerId);
+        const attempt = isNewConnection
+            ? this.startConnectionAttempt(connection, remotePeerId, "incoming")
+            : this.connectionAttempts.get(connection.getConnection());
+        if (attempt) this.logSignalingStage(attempt, "OFFER", "received");
 
         if (existingConnection) {
             const rtcConnection = existingConnection.getConnection();
             const localPeerId = this.context.getIdentity()?.getPeerId();
-
-            if (
-                rtcConnection.signalingState !== "have-local-offer" ||
-                !localPeerId
-            ) {
+            const setup = this.pendingOutgoingSetups.get(remotePeerId.toString());
+            if (!localPeerId) {
+                if (attempt) this.logSignalingStage(attempt, "OFFER", "ignored", {
+                    reason: "local-identity-unavailable"
+                });
                 return;
             }
 
             if (localPeerId.toString() < remotePeerId.toString()) {
-                const ignoredUfrag = this.getIceUfrag(offer.sdp);
-                if (ignoredUfrag) {
-                    const peerIdString = remotePeerId.toString();
-                    const ignoredUfrags =
-                        this.ignoredIceUfrags.get(peerIdString) ?? new Set<string>();
-                    ignoredUfrags.add(ignoredUfrag);
-                    this.ignoredIceUfrags.set(peerIdString, ignoredUfrags);
-                }
+                // Deterministic glare winner: keep the local outgoing offer. This
+                // also covers an offer arriving before createOffer sets the local
+                // description, when the signaling state is still stable.
+                if (attempt) this.logSignalingStage(attempt, "OFFER", "ignored-glare-loser");
                 return;
             }
+
+            if (rtcConnection.signalingState !== "have-local-offer" && !setup) {
+                if (attempt) this.logSignalingStage(attempt, "OFFER", "ignored", {
+                    reason: "peer-connection-not-awaiting-an-offer"
+                });
+                return;
+            }
+
+            // The remote endpoint wins. Stop the in-flight local offer setup and
+            // wait for it to settle before changing SDP on the same RTCPeerConnection.
+            if (setup) {
+                setup.cancelled = true;
+                if (attempt) this.logSignalingStage(attempt, "OFFER", "cancelled-local-glare-loser");
+                try {
+                    await setup.promise;
+                } catch (error) {
+                    if (attempt) this.logSignalingStage(attempt, "OFFER", "cancelled-setup-settled-with-error", {
+                        errorName: getErrorName(error)
+                    });
+                }
+            }
+
+            if (this.context.getConnection(remotePeerId) !== existingConnection) return;
         }
 
         try {
@@ -184,17 +257,19 @@ export class ConnectionController {
                 );
 
                 await this.prepareSessionKey(remotePeerId);
+                if (attempt) this.logSignalingStage(attempt, "IDENTITY", "peer-public-key-verified");
                 this.registerIceCandidateRelay(
                     connection,
                     remotePeerId
                 );
             } else {
-                await connection.getConnection().setLocalDescription({
-                    type: "rollback"
-                });
-
-                this.context.getDataChannel(remotePeerId)?.close();
-                this.context.removeDataChannel(remotePeerId);
+                const rtcConnection = connection.getConnection();
+                if (rtcConnection.signalingState === "have-local-offer") {
+                    if (attempt) this.logSignalingStage(attempt, "OFFER", "glare-rollback");
+                    await rtcConnection.setLocalDescription({ type: "rollback" });
+                    this.context.getDataChannel(remotePeerId)?.close();
+                    this.context.removeDataChannel(remotePeerId);
+                }
             }
 
             this.webRTCManager.registerIncomingChannelHandler(
@@ -212,6 +287,7 @@ export class ConnectionController {
                 offer
 
             );
+            if (attempt) this.logSignalingStage(attempt, "OFFER", "remote-description-applied");
 
             await this.flushPendingIceCandidates(
                 remotePeerId,
@@ -224,6 +300,7 @@ export class ConnectionController {
                     connection
 
                 );
+            if (attempt) this.logSignalingStage(attempt, "ANSWER", "local-description-set");
 
             await this.bootstrapClient.sendAnswer(
 
@@ -232,7 +309,9 @@ export class ConnectionController {
                 answer
 
             );
+            if (attempt) this.logSignalingStage(attempt, "ANSWER", "written-to-bootstrap-socket");
         } catch (error) {
+            if (attempt) this.logSignalingStage(attempt, "OFFER", "processing-failed", { errorName: getErrorName(error) });
             this.discardConnection(remotePeerId, connection);
             throw error;
         }
@@ -263,21 +342,18 @@ export class ConnectionController {
             );
 
         }
+        const attempt = this.connectionAttempts.get(connection.getConnection());
+        if (attempt) this.logSignalingStage(attempt, "ANSWER", "received");
 
-        await this.webRTCManager.setRemoteDescription(
-
-            connection,
-
-            answer
-
-        );
-
-        await this.flushPendingIceCandidates(
-            remotePeerId,
-            connection
-        );
-
-        await this.prepareSessionKey(remotePeerId);
+        try {
+            await this.webRTCManager.setRemoteDescription(connection, answer);
+            if (attempt) this.logSignalingStage(attempt, "ANSWER", "remote-description-applied");
+            await this.flushPendingIceCandidates(remotePeerId, connection);
+            await this.prepareSessionKey(remotePeerId);
+        } catch (error) {
+            if (attempt) this.logSignalingStage(attempt, "ANSWER", "processing-failed", { errorName: getErrorName(error) });
+            throw error;
+        }
 
     }
 
@@ -292,14 +368,6 @@ export class ConnectionController {
 
     ): Promise<void> {
         const remotePeerId = this.toPeerId(senderId);
-        const candidateUfrag = candidate.usernameFragment;
-        const ignoredUfrags =
-            this.ignoredIceUfrags.get(remotePeerId.toString());
-
-        if (candidateUfrag && ignoredUfrags?.has(candidateUfrag)) {
-            return;
-        }
-
         const connection =
 
             this.context.getConnection(
@@ -314,6 +382,12 @@ export class ConnectionController {
                 remotePeerId.toString(),
                 queuedCandidates
             );
+            console.info("[WebRTC signaling]", {
+                messageType: "ICE_CANDIDATE",
+                stage: "queued-before-peer-connection",
+                peerId: shortPeerId(remotePeerId.toString()),
+                queueLength: queuedCandidates.length
+            });
             return;
 
         }
@@ -326,6 +400,11 @@ export class ConnectionController {
                 remotePeerId.toString(),
                 queuedCandidates
             );
+            const attempt = this.connectionAttempts.get(connection.getConnection());
+            if (attempt) this.logSignalingStage(attempt, "ICE_CANDIDATE", "queued-before-remote-description", {
+                queueLength: queuedCandidates.length,
+                candidateType: safeCandidateType(candidate)
+            });
             return;
         }
 
@@ -336,6 +415,10 @@ export class ConnectionController {
             candidate
 
         );
+        const attempt = this.connectionAttempts.get(connection.getConnection());
+        if (attempt) this.logSignalingStage(attempt, "ICE_CANDIDATE", "remote-candidate-applied", {
+            candidateType: safeCandidateType(candidate)
+        });
 
     }
 
@@ -349,6 +432,11 @@ export class ConnectionController {
         this.webRTCManager.registerIceCandidateHandler(
             connection,
             (candidate) => {
+                const attempt = this.connectionAttempts.get(connection.getConnection());
+                if (attempt) this.logSignalingStage(attempt, "ICE_CANDIDATE", "written-to-bootstrap-socket", {
+                    candidateType: candidate.type,
+                    protocol: candidate.protocol
+                });
                 void this.bootstrapClient.sendIceCandidate(
                     peerId,
                     candidate.toJSON()
@@ -361,14 +449,50 @@ export class ConnectionController {
         connection: PeerConnection,
         peerId: PeerId
     ): void {
+        const attempt = this.connectionAttempts.get(connection.getConnection());
         connection.getConnection().addEventListener(
             "connectionstatechange",
             () => {
                 if (connection.getConnection().connectionState === "failed") {
+                    if (attempt) this.logSignalingStage(attempt, "WEBRTC", "connection-failed");
                     this.disconnect(peerId);
                 }
             }
         );
+    }
+
+    private startConnectionAttempt(
+        connection: PeerConnection,
+        remotePeerId: PeerId,
+        direction: "incoming" | "outgoing"
+    ): ConnectionAttempt {
+        const localPeerId = this.context.getIdentity()?.getPeerId().toString() ?? "unknown";
+        const attempt = Object.freeze({
+            attemptId: createRandomId(),
+            initiatorPeerId: direction === "outgoing" ? localPeerId : remotePeerId.toString(),
+            targetPeerId: direction === "outgoing" ? remotePeerId.toString() : localPeerId
+        });
+        const rtcConnection = connection.getConnection();
+        this.connectionAttempts.set(rtcConnection, attempt);
+        this.webRTCDiagnostics.trackPeerConnection(remotePeerId, rtcConnection, attempt);
+        this.logSignalingStage(attempt, "WEBRTC", "connection-attempt-created");
+        return attempt;
+    }
+
+    private logSignalingStage(
+        attempt: ConnectionAttempt,
+        messageType: string,
+        stage: string,
+        extra: Record<string, unknown> = {}
+    ): void {
+        console.info("[WebRTC signaling]", {
+            attemptId: attempt.attemptId,
+            initiatorPeerId: shortPeerId(attempt.initiatorPeerId),
+            targetPeerId: shortPeerId(attempt.targetPeerId),
+            messageType,
+            stage,
+            ...extra
+        });
     }
 
     private discardConnection(
@@ -384,7 +508,6 @@ export class ConnectionController {
         this.context.removeDataChannel(peerId);
         this.encryptionManager.removeSessionKey(peerId);
         this.pendingIceCandidates.delete(peerId.toString());
-        this.ignoredIceUfrags.delete(peerId.toString());
     }
 
     private async flushPendingIceCandidates(
@@ -430,6 +553,10 @@ export class ConnectionController {
             peerId,
             channel
         );
+        const peerConnection = this.context.getConnection(peerId)?.getConnection();
+        if (peerConnection) {
+            this.webRTCDiagnostics.trackDataChannel(peerId, peerConnection, channel.getChannel());
+        }
         void this.refreshRoutingNeighbor(peerId);
 
         this.webRTCManager.registerDataChannelOpenHandler(
@@ -443,6 +570,8 @@ export class ConnectionController {
                     peerId
                 );
                 void this.refreshRoutingNeighbor(peerId);
+                void this.markXorNeighbor(peerId, true);
+                this.sendPeerExchange(peerId);
             }
         );
 
@@ -465,6 +594,7 @@ export class ConnectionController {
             () => {
                 if (this.context.getDataChannel(peerId) === channel) {
                     this.routingTable?.removeNeighbor(peerId.toString());
+                    this.xorRouter?.markNeighbor(peerId.toString(), false);
                     this.context.removeDataChannel(peerId);
                     this.eventBus.emit(
                         "PEER_DISCONNECTED",
@@ -569,6 +699,26 @@ export class ConnectionController {
             return;
         }
 
+        if (envelope.kind === "peer-exchange") {
+            void this.handlePeerExchange(senderId, envelope.payload);
+            return;
+        }
+
+        if (envelope.kind === "xor-routing") {
+            void this.handleXorRoutingPacket(senderId, envelope.payload);
+            return;
+        }
+
+        if (envelope.kind === "route-message") {
+            void this.routeMessageHandler.handleMessage(senderId.toString(), envelope.payload);
+            return;
+        }
+
+        if (envelope.kind === "route-message-response") {
+            void this.routeMessageHandler.handleResponse(senderId.toString(), envelope.payload);
+            return;
+        }
+
         if (envelope.kind === "file-metadata") {
             this.eventBus.emit(
                 "FILE_METADATA",
@@ -587,6 +737,150 @@ export class ConnectionController {
             );
         }
 
+    }
+
+    private sendPeerExchange(peerId: PeerId): void {
+        const channel = this.context.getDataChannel(peerId);
+        const identity = this.context.getIdentity();
+        if (!channel?.isOpen() || !identity) return;
+        const local = identity.getPublicIdentity();
+        const records = [
+            ...this.context.getOnlinePeers(),
+            {
+                peerId: local.peerId.toString(),
+                username: local.username.toString(),
+                publicKey: local.publicKey.toBase64()
+            }
+        ];
+        const unique = [...new Map(records
+            .filter(record => record?.peerId !== identity.getPeerId().toString())
+            .map(record => [record.peerId, record])).values()].slice(0, 64);
+        channel.send(JSON.stringify({ kind: "peer-exchange", payload: { version: 1, peers: unique } }));
+    }
+
+    private async handlePeerExchange(senderId: PeerId, payload: any): Promise<void> {
+        if (payload?.version !== 1 || !Array.isArray(payload.peers)) return;
+        const localPeerId = this.context.getIdentity()?.getPeerId().toString();
+        const verified: any[] = [];
+        for (const candidate of payload.peers.slice(0, 64)) {
+            if (candidate?.peerId === localPeerId || candidate?.peerId === senderId.toString() ||
+                typeof candidate?.peerId !== "string" || typeof candidate?.publicKey !== "string" ||
+                typeof candidate?.username !== "string") continue;
+            try {
+                const publicKey = PublicKey.fromBase64(candidate.publicKey);
+                const derivedPeerId = await PeerId.fromPublicKey(publicKey.bytes);
+                if (derivedPeerId.toString() !== candidate.peerId) continue;
+                verified.push({
+                    peerId: candidate.peerId,
+                    username: candidate.username.slice(0, 64),
+                    publicKey: candidate.publicKey
+                });
+            } catch {
+                // Ignore malformed peer records and continue processing the exchange.
+            }
+        }
+        this.context.mergePeers(verified);
+        await this.ensureXorRouter()?.addKnownPeers(verified);
+        if (!verified.length) return;
+        const peers = this.context.getOnlinePeers();
+        await this.eventBus.emit("PEER_LIST_UPDATED", peers);
+
+        const localCoordinate = this.context.getLocalCoordinate();
+        const identity = this.context.getIdentity();
+        if (localCoordinate === undefined || !identity) return;
+        const neighbors = await Promise.all(verified.map(async peer => ({
+            peerId: peer.peerId,
+            coordinate: await NodeCoordinate.fromPublicKey(PublicKey.fromBase64(peer.publicKey))
+        })));
+        const selected = SmallWorldTopology.selectNeighbors(
+            identity.getPeerId().toString(), localCoordinate, neighbors
+        );
+        this.eventBus.emit("SMALL_WORLD_NEIGHBORS_SELECTED", selected);
+        // Peer exchange enriches routing knowledge but does not establish new
+        // WebRTC links. Only an explicit connect action creates a direct link.
+    }
+
+    private async handleXorRoutingPacket(senderId: PeerId, payload: unknown): Promise<void> {
+        try {
+            const router = this.ensureXorRouter();
+            if (!router || !payload || typeof payload !== "object") return;
+            const packet = payload as { type?: unknown };
+            if (packet.type === "FIND_NODE") {
+                const response = await router.handleFindNodeRequest(senderId.toString(), payload as FindNodeRequest);
+                if (response) this.sendXorRoutingPacket(senderId, response);
+                return;
+            }
+            if (packet.type === "FIND_NODE_RESPONSE") {
+                await router.handleFindNodeResponse(senderId.toString(), payload as FindNodeResponse);
+            }
+        } catch (error) {
+            console.warn("Dropping invalid XOR routing packet:", error);
+        }
+    }
+
+    private sendXorRoutingPacket(
+        peerId: PeerId,
+        packet: FindNodeRequest | FindNodeResponse
+    ): void {
+        const channel = this.context.getDataChannel(peerId);
+        if (!channel?.isOpen()) throw new Error("FIND_NODE peer is no longer reachable.");
+        channel.send(JSON.stringify({ kind: "xor-routing", payload: packet }));
+    }
+
+    private async markXorNeighbor(peerId: PeerId, live: boolean): Promise<void> {
+        const router = this.ensureXorRouter();
+        if (!router) return;
+        if (live) {
+            const record = this.context.getOnlinePeers().find((peer: any) => peer?.peerId === peerId.toString());
+            if (record) await router.addKnownPeer(record);
+        }
+        router.markNeighbor(peerId.toString(), live);
+    }
+
+    /** Run bounded XOR lookup and return discovery separately from direct reachability. */
+    public async findNode(
+        targetPeerId: PeerId | string,
+        options: { k?: number; alpha?: number; timeoutMs?: number; hopLimit?: number } = {}
+    ) {
+        const router = this.ensureXorRouter();
+        if (!router) throw new Error("Local identity is unavailable for XOR lookup.");
+        const target = typeof targetPeerId === "string" ? targetPeerId : targetPeerId.toString();
+        return router.findNode(target, options);
+    }
+
+    public sendChatMessage(
+        destinationPeerId: string,
+        messageId: string,
+        encryptedPayload: string,
+        onProgress?: (response: RouteMessageResponse) => void,
+        originHopLimit?: number
+    ): Promise<RouteMessageResponse> {
+        return this.routeMessageHandler.send(destinationPeerId, messageId, encryptedPayload, onProgress, originHopLimit);
+    }
+
+    public dispose(): void {
+        this.routeMessageHandler.dispose();
+        this.xorRouter?.dispose();
+    }
+
+    public async getWebRTCDiagnostics(): Promise<WebRTCDiagnosticSnapshot[]> {
+        return Promise.all(this.context.getConnectedPeerIds().flatMap(peerId => {
+            const id = PeerId.fromString(peerId);
+            const connection = this.context.getConnection(id)?.getConnection();
+            if (!connection) return [];
+            return [this.webRTCDiagnostics.snapshot(
+                id,
+                connection,
+                this.context.getDataChannel(id)?.getChannel()
+            )];
+        }));
+    }
+
+    private sendRouteMessagePacket(peerId: string, payload: RouteMessage | RouteMessageResponse): void {
+        const channel = this.context.getDataChannel(PeerId.fromString(peerId));
+        if (!channel?.isOpen()) throw new Error("Route peer is no longer reachable.");
+        const kind = payload.type === "ROUTE_MESSAGE" ? "route-message" : "route-message-response";
+        channel.send(JSON.stringify({ kind, payload }));
     }
 
     private cacheEncryptedChunk(candidate: unknown): void {
@@ -648,8 +942,8 @@ export class ConnectionController {
             remotePeerId
         );
         this.routingTable?.removeNeighbor(remotePeerId.toString());
+        this.xorRouter?.markNeighbor(remotePeerId.toString(), false);
         this.pendingIceCandidates.delete(remotePeerId.toString());
-        this.ignoredIceUfrags.delete(remotePeerId.toString());
 
         this.encryptionManager.removeSessionKey(
             remotePeerId
@@ -687,24 +981,34 @@ export class ConnectionController {
             router.routePacket(request.targetCoordinate, request.packet, request.id);
         });
 
+        this.eventBus.on("PEER_LIST_UPDATED", async (peers: any[]) => {
+            const router = this.ensureXorRouter();
+            if (!router || !Array.isArray(peers)) return;
+            await router.addKnownPeers(peers);
+            for (const id of this.context.getOpenConnectedPeerIds()) {
+                await this.markXorNeighbor(PeerId.fromString(id), true);
+            }
+        });
+
+        this.eventBus.on("FIND_NODE_LOOKUP", async (request: {
+            targetPeerId: PeerId | string;
+            k?: number;
+            alpha?: number;
+            timeoutMs?: number;
+            hopLimit?: number;
+        }) => {
+            const result = await this.findNode(request.targetPeerId, request);
+            await this.eventBus.emit("FIND_NODE_LOOKUP_RESULT", result);
+        });
+
         this.eventBus.on(
             "CONNECT_TO_PEER",
-            async (request: PeerId | string | {
-                peerId: PeerId | string;
-                force?: boolean;
-            }) => {
-                if (
-                    request &&
-                    typeof request === "object" &&
-                    "peerId" in request
-                ) {
-                    await this.connect(request.peerId, {
-                        force: request.force === true
-                    });
-                    return;
-                }
-
-                await this.connect(request as PeerId | string);
+            async (request: PeerId | string | { peerId: PeerId | string }) => {
+                await this.connect(
+                    request && typeof request === "object" && "peerId" in request
+                        ? request.peerId
+                        : request as PeerId | string
+                );
             }
         );
 
@@ -797,6 +1101,26 @@ export class ConnectionController {
         return this.router;
     }
 
+    private ensureXorRouter(): XorRouter | undefined {
+        const peerId = this.context.getIdentity()?.getPeerId().toString();
+        if (!peerId) return undefined;
+        if (this.xorRoutingPeerId !== peerId) {
+            this.xorRouter?.dispose();
+            this.xorRouter = new XorRouter(peerId, {
+                isLiveNeighbor: id => {
+                    try {
+                        return this.context.getDataChannel(PeerId.fromString(id))?.isOpen() === true;
+                    } catch {
+                        return false;
+                    }
+                },
+                send: (id, packet) => this.sendXorRoutingPacket(PeerId.fromString(id), packet)
+            });
+            this.xorRoutingPeerId = peerId;
+        }
+        return this.xorRouter;
+    }
+
     private async refreshRoutingNeighbor(peerId: PeerId): Promise<void> {
         let selection = this.selectedRoutingNeighbors.get(peerId.toString());
         const channel = this.context.getDataChannel(peerId);
@@ -831,4 +1155,17 @@ export class ConnectionController {
         this.routingTable?.addNeighbor(neighbor);
     }
 
+}
+
+function shortPeerId(peerId: string): string {
+    return `${peerId.slice(0, 12)}…`;
+}
+
+function safeCandidateType(candidate: RTCIceCandidateInit): string {
+    const type = candidate.candidate?.match(/\btyp\s+(host|srflx|prflx|relay)\b/i)?.[1];
+    return type?.toLowerCase() ?? "unknown";
+}
+
+function getErrorName(error: unknown): string {
+    return error instanceof Error ? error.name : "UnknownError";
 }
